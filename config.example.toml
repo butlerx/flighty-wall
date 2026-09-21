@@ -1,0 +1,18 @@
+[google]
+# Share this dedicated calendar read-only with the service account.
+calendar_id = "replace-with-dedicated-calendar-id@group.calendar.google.com"
+credentials_path = "/etc/flighty-wall/google-service-account.json"
+
+[service]
+poll_interval_seconds = 120
+lookahead_days = 7
+dry_run = true
+
+[storage]
+state_path = "/var/lib/flighty-wall/state.sqlite3"
+
+[calendar_limits]
+max_pages = 10
+max_events = 500
+max_field_chars = 8192
+max_snapshot_bytes = 1048576
