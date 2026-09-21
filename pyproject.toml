@@ -8,7 +8,10 @@ version = "0.1.0"
 description = "Sync Flighty Friends flights to a FlightWall Mini"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+  "google-api-python-client>=2.160,<3",
+  "google-auth>=2.38,<3",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -24,6 +27,9 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+flighty_wall = ["py.typed"]
+
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
@@ -32,6 +38,10 @@ testpaths = ["tests"]
 python_version = "3.11"
 mypy_path = "src"
 strict = true
+
+[[tool.mypy.overrides]]
+module = ["google.*", "googleapiclient.*"]
+ignore_missing_imports = true
 
 [tool.pyright]
 pythonVersion = "3.11"

@@ -1,11 +1,13 @@
+"""Tests for safe service configuration loading."""
+
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
-import pytest
+import pytest as pytest_module
 
-from flighty_wall.config import ConfigError, load_config, require_private_file
+import flighty_wall.config as config_module
 
 
 def write_config(path: Path, *, state_path: Path, credentials_path: Path, poll: int = 120) -> None:
@@ -36,7 +38,7 @@ def test_load_config_applies_safe_defaults(tmp_path: Path) -> None:
     config_path = tmp_path / "config.toml"
     write_config(config_path, state_path=state_dir / "state.sqlite3", credentials_path=credentials)
 
-    config = load_config(config_path)
+    config = config_module.load_config(config_path)
 
     assert config.calendar_id == "friends@example.invalid"
     assert config.poll_interval_seconds == 120
@@ -50,7 +52,7 @@ def test_load_config_applies_safe_defaults(tmp_path: Path) -> None:
     assert config.google_credentials_path == credentials
 
 
-@pytest.mark.parametrize("poll", [0, -1, 29])
+@pytest_module.mark.parametrize("poll", [0, -1, 29])
 def test_load_config_rejects_unsafe_poll_intervals(tmp_path: Path, poll: int) -> None:
     state_dir = tmp_path / "state"
     state_dir.mkdir(mode=0o700)
@@ -65,8 +67,8 @@ def test_load_config_rejects_unsafe_poll_intervals(tmp_path: Path, poll: int) ->
         poll=poll,
     )
 
-    with pytest.raises(ConfigError, match="poll_interval_seconds"):
-        load_config(config_path)
+    with pytest_module.raises(config_module.ConfigError, match="poll_interval_seconds"):
+        config_module.load_config(config_path)
 
 
 def test_load_config_rejects_primary_calendar(tmp_path: Path) -> None:
@@ -79,8 +81,8 @@ def test_load_config_rejects_primary_calendar(tmp_path: Path) -> None:
     write_config(config_path, state_path=state_dir / "state.sqlite3", credentials_path=credentials)
     config_path.write_text(config_path.read_text().replace("friends@example.invalid", "primary"))
 
-    with pytest.raises(ConfigError, match="dedicated calendar"):
-        load_config(config_path)
+    with pytest_module.raises(config_module.ConfigError, match="dedicated calendar"):
+        config_module.load_config(config_path)
 
 
 def test_load_config_rejects_state_parent_that_is_not_a_directory(tmp_path: Path) -> None:
@@ -96,8 +98,8 @@ def test_load_config_rejects_state_parent_that_is_not_a_directory(tmp_path: Path
         credentials_path=credentials,
     )
 
-    with pytest.raises(ConfigError, match="state directory"):
-        load_config(config_path)
+    with pytest_module.raises(config_module.ConfigError, match="state directory"):
+        config_module.load_config(config_path)
 
 
 def test_require_private_file_rejects_group_or_world_access(tmp_path: Path) -> None:
@@ -105,11 +107,11 @@ def test_require_private_file_rejects_group_or_world_access(tmp_path: Path) -> N
     secret.write_text("secret-value", encoding="utf-8")
     secret.chmod(0o644)
 
-    with pytest.raises(ConfigError, match="0600"):
-        require_private_file(secret)
+    with pytest_module.raises(config_module.ConfigError, match="0600"):
+        config_module.require_private_file(secret)
 
     secret.chmod(0o600)
-    require_private_file(secret)
+    config_module.require_private_file(secret)
 
 
 def test_config_repr_contains_paths_not_secret_contents(tmp_path: Path) -> None:
@@ -121,7 +123,7 @@ def test_config_repr_contains_paths_not_secret_contents(tmp_path: Path) -> None:
     config_path = tmp_path / "config.toml"
     write_config(config_path, state_path=state_dir / "state.sqlite3", credentials_path=credentials)
 
-    config = load_config(config_path)
+    config = config_module.load_config(config_path)
 
     assert "super-secret-value" not in repr(config)
     assert os.fspath(credentials) in repr(config)
