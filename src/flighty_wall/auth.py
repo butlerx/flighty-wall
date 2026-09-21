@@ -8,8 +8,8 @@ from typing import Protocol, cast
 
 from google.oauth2 import service_account
 
-from flighty_wall.calendar import CalendarService, GoogleCalendarGateway
-from flighty_wall.config import require_private_file
+from .calendar import CalendarService, GoogleCalendarGateway
+from .config import require_private_file
 
 CALENDAR_READONLY_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
 

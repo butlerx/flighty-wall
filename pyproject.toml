@@ -13,6 +13,9 @@ dependencies = [
   "google-auth>=2.38,<3",
 ]
 
+[project.scripts]
+flighty-wall = "flighty_wall.cli:main"
+
 [project.optional-dependencies]
 dev = [
   "mypy>=1.15,<2",

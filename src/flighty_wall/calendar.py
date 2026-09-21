@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Protocol, cast
 
-from flighty_wall.models import Snapshot, SnapshotAuthority, SourceEvent
+from .models import Snapshot, SnapshotAuthority, SourceEvent
 
 
 class CalendarServiceRequest(Protocol):
