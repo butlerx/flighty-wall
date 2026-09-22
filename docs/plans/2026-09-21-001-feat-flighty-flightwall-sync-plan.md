@@ -1,9 +1,10 @@
 ---
 title: 'feat: Sync Flighty Friends to FlightWall Mini'
 type: feat
-status: active
+status: done
 date: 2026-09-21
 updated: 2026-09-22
+completed: 2026-09-22
 origin: docs/brainstorms/2026-09-21-flighty-friends-flightwall-sync-requirements.md
 deepened: 2026-09-21
 ---
@@ -488,8 +489,7 @@ flowchart TB
 
 ---
 
-- [x] U4. **Capture and document the authorized FlightWall contract** — captured
-      and probed 2026-09-22; gate closed
+- [x] U4. **Capture and document the authorized FlightWall contract** — `652bcf8`, `d55b272`; captured and probed 2026-09-22; gate closed
 
 **Goal:** Observe the exact commercial-app requests needed to list, add, and
 remove tracked flights, and prove the capability gate, before any code targets
@@ -548,7 +548,7 @@ setup step copies it from the capture once; it does not expire.
 
 ---
 
-- [ ] U5. **Implement the defensive FlightWall client**
+- [x] U5. **Implement the defensive FlightWall client** — `7a9c78e`
 
 **Goal:** Encapsulate the captured contract behind a validated client that
 exposes read-configuration and replace-tracked-flights, and nothing else.
@@ -634,7 +634,7 @@ exposes read-configuration and replace-tracked-flights, and nothing else.
 
 ---
 
-- [ ] U6. **Build ownership-safe reconciliation**
+- [x] U6. **Build ownership-safe reconciliation** — `2ec6a7a`
 
 **Goal:** Compute and apply idempotent calendar-to-wall changes while preserving
 manual entries.
@@ -712,8 +712,7 @@ AE4 (AE3 reduced: overlap without mode)
 
 ---
 
-- [ ] U7. **Daemon lifecycle, remaining commands, systemd, end-to-end
-      verification**
+- [x] U7. **Daemon lifecycle, remaining commands, systemd, end-to-end verification** — `3ccddc2`, verified live
 
 **Goal:** Make the service installable, observable, recoverable, and
 straightforward to operate on the Linux host.

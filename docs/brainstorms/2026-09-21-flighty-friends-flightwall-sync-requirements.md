@@ -147,6 +147,6 @@ Flighty already contains current and upcoming flights for the owner's Flighty Fr
 
 ## Status
 
-Planned in `docs/plans/2026-09-21-001-feat-flighty-flightwall-sync-plan.md`. Calendar intake and
-parsing (U1–U3) are done and verified against the live calendar. The FlightWall contract is
-captured and probed (U4, 2026-09-22) and the capability gate is closed. The client (U5) is next.
+Planned in `docs/plans/2026-09-21-001-feat-flighty-flightwall-sync-plan.md`. All seven units are
+done as of 2026-09-22 and the full add → no-change → remove cycle was verified against the live
+wall and calendar. Remaining: the owner's first deployment to the Linux host (README steps 7–9).
