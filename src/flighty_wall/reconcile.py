@@ -151,20 +151,20 @@ def apply_plan(
         return None
 
     started_at = _rfc3339(now)
+    before = snapshot.flight_numbers
     with store.transaction() as transaction:
-        transaction.begin_pending_write(desired=the_plan.desired, started_at=started_at)
+        transaction.begin_pending_write(desired=the_plan.desired, before=before, started_at=started_at)
 
     flights = _flights_for(the_plan, snapshot, now)
     result = client.replace_tracked_flights(snapshot, flights)
 
-    before = snapshot.flight_numbers
     if result.outcome is WriteOutcome.APPLIED:
         _settle(store, the_plan.desired, the_plan.wanted_keys, before=before, applied=True, now=started_at)
     elif result.outcome is WriteOutcome.REJECTED:
         _settle(store, the_plan.desired, the_plan.wanted_keys, before=before, applied=False, now=started_at)
     else:
         # UNKNOWN: a full body that reached the server applies. Only the re-read can say.
-        recover_pending_write(store, result.snapshot, before=before, wanted_keys=the_plan.wanted_keys)
+        recover_pending_write(store, result.snapshot, wanted_keys=the_plan.wanted_keys)
     return result
 
 
@@ -172,7 +172,6 @@ def recover_pending_write(
     store: StateStore,
     snapshot: WallSnapshot,
     *,
-    before: Sequence[str] | None = None,
     wanted_keys: Mapping[str, str] | None = None,
 ) -> RecoveryOutcome | None:
     """Settle an intent the last run journaled but never resolved.
@@ -192,7 +191,7 @@ def recover_pending_write(
         store,
         pending.desired,
         wanted_keys or {},
-        before=tuple(before or ()),
+        before=pending.before,
         applied=applied,
         now=pending.started_at,
     )

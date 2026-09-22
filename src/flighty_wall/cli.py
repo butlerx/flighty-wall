@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -19,6 +20,18 @@ from .config import AppConfig, ConfigError, FlightWall, load_config
 from .flightwall import FlightWallClient, HttpxTransport, Transport, load_credentials
 from .models import SnapshotAuthority
 from .redaction import as_mapping
+from .service import (
+    CycleReport,
+    CycleStatus,
+    LockBusyError,
+    configure_logging,
+    host_lock,
+    install_stop_signals,
+    lock_path_for,
+    run_cycle,
+    run_forever,
+)
+from .state import StateStore
 
 GatewayFactory = Callable[[Path], CalendarGateway]
 TransportFactory = Callable[[FlightWall], Transport]
@@ -206,6 +219,108 @@ def probe_wall(ctx: click.Context, *, config_path: Path) -> None:
     click.echo(f"tracked_flights: {len(snapshot.tracked_flights)}")
     for flight in snapshot.tracked_flights:
         click.echo(f"  {flight.flight_number}  added {flight.created_at}")
+
+
+EXIT_NOT_AUTHORITATIVE = 3
+"""A source could not be read authoritatively; nothing was written."""
+EXIT_WRITE_FAILED = 4
+"""The wall rejected the write or its outcome is unknown; see the summary line."""
+EXIT_BUSY = 5
+"""Another mutating process holds the host lock."""
+
+_NON_AUTHORITATIVE = frozenset(
+    {
+        CycleStatus.CALENDAR_NOT_AUTHORITATIVE,
+        CycleStatus.PARSE_NOT_AUTHORITATIVE,
+        CycleStatus.WALL_NOT_AUTHORITATIVE,
+    }
+)
+_WRITE_FAILED = frozenset({CycleStatus.REJECTED, CycleStatus.UNKNOWN})
+
+
+@cli.command("sync")
+@click.option("--config", "config_path", type=click.Path(path_type=Path), required=True)
+@click.option(
+    "--apply",
+    "apply_flag",
+    is_flag=True,
+    help="write to the wall even if service.dry_run is true; without it this is a dry run",
+)
+@click.pass_context
+def sync(ctx: click.Context, *, config_path: Path, apply_flag: bool) -> None:
+    """Run one cycle and print what it did or would do."""
+    deps = ctx.ensure_object(Deps)
+    try:
+        config = load_config(config_path)
+        wall = _wall(config, deps)
+        calendar = _reader(config, deps.gateway_factory)
+    except ConfigError as error:
+        click.echo(f"configuration error: {error}", err=True)
+        ctx.exit(2)
+
+    apply = apply_flag or not config.service.dry_run
+    lock = lock_path_for(config.storage.state_path)
+    try:
+        with host_lock(lock), StateStore(config.storage.state_path) as store:
+            report = run_cycle(calendar=calendar, wall=wall, store=store, now=deps.now(), apply=apply)
+    except LockBusyError as error:
+        click.echo(f"busy: {error}", err=True)
+        ctx.exit(EXIT_BUSY)
+
+    _print_report(report, apply=apply)
+    ctx.exit(_exit_code(report))
+
+
+@cli.command("run")
+@click.option("--config", "config_path", type=click.Path(path_type=Path), required=True)
+@click.option("--log-level", default="INFO", show_default=True, help="DEBUG, INFO, WARNING, or ERROR")
+@click.pass_context
+def run(ctx: click.Context, *, config_path: Path, log_level: str) -> None:
+    """Run cycles on the configured interval until SIGTERM or SIGINT."""
+    deps = ctx.ensure_object(Deps)
+    configure_logging(log_level)
+    try:
+        config = load_config(config_path)
+        wall = _wall(config, deps)
+        calendar = _reader(config, deps.gateway_factory)
+    except ConfigError as error:
+        click.echo(f"configuration error: {error}", err=True)
+        ctx.exit(2)
+
+    apply = not config.service.dry_run
+    stop = threading.Event()
+    install_stop_signals(stop)
+    lock = lock_path_for(config.storage.state_path)
+    try:
+        with host_lock(lock), StateStore(config.storage.state_path) as store:
+            click.echo(
+                f"flighty-wall starting: interval={config.service.poll_interval_seconds}s "
+                f"lookahead={config.service.lookahead_days}d mode={'apply' if apply else 'dry-run'}",
+                err=True,
+            )
+            cycles = run_forever(
+                lambda: run_cycle(calendar=calendar, wall=wall, store=store, now=deps.now(), apply=apply),
+                interval_seconds=config.service.poll_interval_seconds,
+                stop=stop,
+            )
+    except LockBusyError as error:
+        click.echo(f"busy: {error}", err=True)
+        ctx.exit(EXIT_BUSY)
+    click.echo(f"flighty-wall stopped after {cycles} cycle(s)", err=True)
+
+
+def _print_report(report: CycleReport, *, apply: bool) -> None:
+    click.echo(report.summary())
+    if report.plan is not None and report.plan.changed and not apply:
+        click.echo("dry run: nothing was written. Re-run with --apply, or set service.dry_run = false.")
+
+
+def _exit_code(report: CycleReport) -> int:
+    if report.status in _NON_AUTHORITATIVE:
+        return EXIT_NOT_AUTHORITATIVE
+    if report.status in _WRITE_FAILED:
+        return EXIT_WRITE_FAILED
+    return 0
 
 
 def _wall(config: AppConfig, deps: Deps) -> FlightWallClient:

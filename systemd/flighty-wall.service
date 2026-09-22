@@ -1,0 +1,71 @@
+# flighty-wall: sync Flighty Friends' flights to a FlightWall Mini.
+#
+# Install:
+#   sudo useradd --system --home /var/lib/flighty-wall --shell /usr/sbin/nologin flighty-wall
+#   sudo install -d -m 0700 -o flighty-wall -g flighty-wall /var/lib/flighty-wall /etc/flighty-wall
+#   sudo install -m 0600 -o flighty-wall -g flighty-wall config.toml /etc/flighty-wall/config.toml
+#   sudo install -m 0600 -o flighty-wall -g flighty-wall google-service-account.json /etc/flighty-wall/
+#   sudo install -m 0600 -o flighty-wall -g flighty-wall flightwall-credentials.toml /etc/flighty-wall/
+#   sudo install -m 0644 systemd/flighty-wall.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now flighty-wall
+#
+# The unit assumes the package is installed into /opt/flighty-wall with `uv sync --frozen`
+# (so the entry point is /opt/flighty-wall/.venv/bin/flighty-wall). Adjust ExecStart if not.
+
+[Unit]
+Description=Sync Flighty Friends' flights to a FlightWall Mini
+Documentation=https://github.com/butlerx/flighty-wall
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=flighty-wall
+Group=flighty-wall
+WorkingDirectory=/var/lib/flighty-wall
+ExecStart=/opt/flighty-wall/.venv/bin/flighty-wall run --config /etc/flighty-wall/config.toml
+Restart=on-failure
+RestartSec=30s
+# SIGTERM lets the current cycle finish; a cycle is bounded by the HTTP timeouts.
+KillSignal=SIGTERM
+TimeoutStopSec=90s
+UMask=0077
+
+# Journal gets stderr; the daemon prints one summary line per cycle and no secrets.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=flighty-wall
+
+# Hardening. The daemon needs: read /etc/flighty-wall, read+write /var/lib/flighty-wall,
+# outbound HTTPS. Nothing else.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/flighty-wall
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+RemoveIPC=yes
+TasksMax=16
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

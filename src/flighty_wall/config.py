@@ -60,7 +60,7 @@ class Service(BaseModel):
     model_config = _STRICT
 
     poll_interval_seconds: int = Field(default=120, ge=30, le=86_400)
-    lookahead_days: int = Field(default=7, ge=1, le=30)
+    lookahead_days: int = Field(default=7, ge=1, le=90)
     dry_run: bool = True
 
 

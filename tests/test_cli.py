@@ -5,7 +5,7 @@ from __future__ import annotations
 import stat
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import orjson
 from click.testing import CliRunner
@@ -13,6 +13,7 @@ from click.testing import CliRunner
 from flighty_wall.cli import Deps, cli
 
 if TYPE_CHECKING:
+    import threading
     from collections.abc import Mapping
 
     from flighty_wall.calendar import CalendarGateway
@@ -271,3 +272,164 @@ def test_probe_wall_reports_a_rejected_key_without_echoing_it(tmp_path: Path) ->
 
     assert code == 2
     assert "flightwall_credentials_rejected:1102" in err
+
+
+# --- sync / run --------------------------------------------------------------------------------
+
+
+def flighty_page() -> dict[str, Any]:
+    return {
+        "items": [
+            {
+                "id": "e1",
+                "status": "confirmed",
+                "summary": "Alice: \u2708 DUB\u200b\u2192\u200bBCN \u2022 VY\u00a08721",
+                "description": "VY 8721\nDUB to BCN\n\u2197 10:00 IST\n\u2198 13:00 CET",
+                "location": "DUB",
+                "start": {"dateTime": "2026-10-24T10:00:00+01:00", "timeZone": "Europe/Dublin"},
+                "end": {"dateTime": "2026-10-24T13:00:00+02:00", "timeZone": "Europe/Madrid"},
+                "updated": "2026-09-20T09:00:00Z",
+            }
+        ]
+    }
+
+
+class RecordingTransport:
+    """GET returns the fixture document; POST echoes what it was sent."""
+
+    def __init__(self, document: dict[str, object]) -> None:
+        self.document = document
+        self.calls: list[tuple[str, str]] = []
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        headers: dict[str, str],
+        body: object | None,
+    ) -> tuple[int, object]:
+        del headers
+        self.calls.append((method, path))
+        if method == "POST":
+            posted = cast("dict[str, object]", body)
+            self.document = {k: v for k, v in posted.items() if k != "userId"}
+        return 200, self.document
+
+
+def invoke_sync(
+    arguments: list[str], *, transport: RecordingTransport, gateway: FixtureGateway
+) -> tuple[int, str, str]:
+    result = CliRunner().invoke(
+        cli,
+        arguments,
+        obj=Deps(
+            gateway_factory=lambda _: gateway,
+            transport_factory=lambda _: transport,
+            now=lambda: datetime(2026, 9, 22, tzinfo=UTC),
+        ),
+    )
+    if result.exception is not None and not isinstance(result.exception, SystemExit):
+        raise result.exception
+    return result.exit_code, result.stdout, result.stderr
+
+
+def test_sync_defaults_to_dry_run_and_writes_nothing(tmp_path: Path) -> None:
+    transport = RecordingTransport(wall_document())
+
+    code, out, _ = invoke_sync(
+        ["sync", "--config", str(write_config_with_wall(tmp_path))],
+        transport=transport,
+        gateway=FixtureGateway(flighty_page()),
+    )
+
+    assert code == 0
+    assert "status=dry_run" in out
+    assert "add=['VY8721']" in out
+    assert "nothing was written" in out
+    assert [m for m, _ in transport.calls] == ["GET"]
+
+
+def test_sync_apply_writes_and_a_second_run_is_a_no_op(tmp_path: Path) -> None:
+    transport = RecordingTransport(wall_document())
+    config_path = write_config_with_wall(tmp_path)
+
+    code, out, _ = invoke_sync(
+        ["sync", "--config", str(config_path), "--apply"],
+        transport=transport,
+        gateway=FixtureGateway(flighty_page()),
+    )
+    assert code == 0
+    assert "status=applied" in out
+    assert [m for m, _ in transport.calls] == ["GET", "POST", "GET"]
+
+    code, out, _ = invoke_sync(
+        ["sync", "--config", str(config_path), "--apply"],
+        transport=transport,
+        gateway=FixtureGateway(flighty_page()),
+    )
+    assert code == 0
+    assert "status=no_change" in out
+    assert [m for m, _ in transport.calls] == ["GET", "POST", "GET", "GET"]
+
+
+def test_sync_calendar_failure_exits_3_and_never_touches_the_wall(tmp_path: Path) -> None:
+    transport = RecordingTransport(wall_document())
+
+    code, out, _ = invoke_sync(
+        ["sync", "--config", str(write_config_with_wall(tmp_path)), "--apply"],
+        transport=transport,
+        gateway=FixtureGateway(TimeoutError("google")),
+    )
+
+    assert code == 3
+    assert "status=calendar_not_authoritative" in out
+    assert transport.calls == []
+
+
+def test_sync_is_refused_while_another_process_holds_the_lock(tmp_path: Path) -> None:
+    from flighty_wall.service import host_lock, lock_path_for  # noqa: PLC0415
+
+    config_path = write_config_with_wall(tmp_path)
+    transport = RecordingTransport(wall_document())
+    with host_lock(lock_path_for(tmp_path / "state" / "state.sqlite3")):
+        code, _, err = invoke_sync(
+            ["sync", "--config", str(config_path), "--apply"],
+            transport=transport,
+            gateway=FixtureGateway(flighty_page()),
+        )
+
+    assert code == 5
+    assert "busy" in err
+    assert transport.calls == []
+
+
+def test_run_exits_cleanly_when_stopped_after_one_cycle(tmp_path: Path, monkeypatch: Any) -> None:
+    import flighty_wall.cli as cli_module  # noqa: PLC0415
+
+    transport = RecordingTransport(wall_document())
+    cycles_seen: list[int] = []
+
+    def fake_run_forever(cycle: Any, *, interval_seconds: float, stop: Any) -> int:
+        del interval_seconds, stop
+        cycle()
+        cycles_seen.append(1)
+        return 1
+
+    def no_signals(_stop: threading.Event) -> None:
+        return None
+
+    monkeypatch.setattr(cli_module, "run_forever", fake_run_forever)
+    monkeypatch.setattr(cli_module, "install_stop_signals", no_signals)
+
+    code, _, err = invoke_sync(
+        ["run", "--config", str(write_config_with_wall(tmp_path))],
+        transport=transport,
+        gateway=FixtureGateway(flighty_page()),
+    )
+
+    assert code == 0
+    assert cycles_seen == [1]
+    assert "mode=dry-run" in err
+    assert "stopped after 1 cycle(s)" in err
+    assert [m for m, _ in transport.calls] == ["GET"]

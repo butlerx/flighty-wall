@@ -130,7 +130,7 @@ Flighty already contains current and upcoming flights for the owner's Flighty Fr
 ### Resolved during implementation
 
 - [Affects R2, R3] **Stable calendar fields.** `summary` (`"<Friend>: ✈ DUB→BCN • VY 8721"`, with `U+00A0` and `U+200B` normalised), `description`, `start`/`end` with explicit time zones, and `status`. The stable key is `DESIGNATOR:ORIGIN:UTC-departure-date` carrying the set of contributing Google event IDs; codeshares make the cycle non-authoritative because the export carries no codeshare data. Recorded in `tests/fixtures/google_calendar/README.md`.
-- [Affects R6] **Defaults.** Poll every 120 seconds, manage the next 7 days; bounded to 30–86 400 seconds and 1–30 days in `config.py`.
+- [Affects R6] **Defaults.** Poll every 120 seconds, manage the next 7 days; bounded to 30–86 400 seconds and 1–90 days in `config.py`.
 - [Affects R11, R12] **Read-only sharing.** The dedicated calendar was shared with the service account's `client_email` as *See all event details* and read live through `calendar.readonly` on 2026-09-22.
 - [Affects R7, R8] **FlightWall requests.** `GET`/`POST https://api.theflightwall.com/configuration` with `x-api-key` and `x-user-id` headers; tracked flights are a list in one whole-document, last-writer-wins configuration. Captured 2026-09-22 from the owner's Mac. Full contract: `docs/flightwall-api-discovery.md`.
 - [Affects R9] **Mode exclusivity.** Not exclusive — no mode exists. R9 withdrawn.

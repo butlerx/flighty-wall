@@ -110,13 +110,13 @@ class Fingerprint:
     def drift(self) -> str | None:
         """Return why this document is not the captured contract, or None if it is."""
         if self.model != FINGERPRINT_MODEL:
-            return f"flightwall_contract_drift:model={self.model!r}"
+            return WallFailure.CONTRACT_DRIFT.with_detail(f"model={self.model!r}")
         if self.top_level_keys not in (DOCUMENT_KEYS, DOCUMENT_KEYS_AFTER_WRITE):
             unexpected = sorted(self.top_level_keys ^ DOCUMENT_KEYS)
-            return f"flightwall_contract_drift:top-level={unexpected}"
+            return WallFailure.CONTRACT_DRIFT.with_detail(f"top-level={unexpected}")
         if self.tracked_flight_keys and self.tracked_flight_keys != TRACKED_FLIGHT_KEYS:
             unexpected = sorted(self.tracked_flight_keys ^ TRACKED_FLIGHT_KEYS)
-            return f"flightwall_contract_drift:tracked_flights={unexpected}"
+            return WallFailure.CONTRACT_DRIFT.with_detail(f"tracked_flights={unexpected}")
         return None
 
 
@@ -162,6 +162,32 @@ class WriteOutcome(StrEnum):
     """The server answered with an error; nothing changed."""
     UNKNOWN = "unknown"
     """The request did not complete. A full body may have applied; compare the re-read."""
+
+
+class WallFailure(StrEnum):
+    """Why a read or write could not be trusted. Rendered as ``<value>:<detail>`` in reasons.
+
+    Kept as strings so ``WallSnapshot.reason`` matches the calendar side and reads well in
+    the journal; the enum stops typos and lists the vocabulary in one place.
+    """
+
+    CREDENTIALS_REJECTED = "flightwall_credentials_rejected"
+    """401. Detail is the server's ``errors[0].code`` (1101 missing, 1102 invalid)."""
+    BLOCKED = "flightwall_blocked"
+    """403 from Cloudflare. Detail is ``cloudflare_<error_code>``; never retry."""
+    FORBIDDEN = "flightwall_forbidden"
+    RATE_LIMITED = "flightwall_rate_limited"
+    SERVER_ERROR = "flightwall_server_error"
+    UNEXPECTED_STATUS = "flightwall_unexpected_status"
+    REQUEST_FAILED = "flightwall_request_failed"
+    """Transport-level failure. Detail is the exception class; a write may still have applied."""
+    RESPONSE_NOT_OBJECT = "flightwall_response_not_object"
+    CONTRACT_DRIFT = "flightwall_contract_drift"
+    """The document does not match the captured fingerprint. Detail names the field."""
+
+    def with_detail(self, detail: object) -> str:
+        """Render as the reason string carried on snapshots and results."""
+        return f"{self.value}:{detail}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -309,7 +335,7 @@ def load_credentials(path: Path) -> FlightWallCredentials:
 def _snapshot_from_document(body: object, observed_at: datetime) -> WallSnapshot:
     document = as_mapping(body)
     if document is None:
-        return WallSnapshot.non_authoritative(observed_at, "flightwall_response_not_object")
+        return WallSnapshot.non_authoritative(observed_at, WallFailure.RESPONSE_NOT_OBJECT.value)
     display_config = as_mapping(document.get("display_config")) or {}
     request_config = as_mapping(document.get("request_config"))
     if request_config is None:
@@ -349,7 +375,7 @@ def _snapshot_from_document(body: object, observed_at: datetime) -> WallSnapshot
 
 
 def _drift(observed_at: datetime, detail: str) -> WallSnapshot:
-    return WallSnapshot.non_authoritative(observed_at, f"flightwall_contract_drift:{detail}")
+    return WallSnapshot.non_authoritative(observed_at, WallFailure.CONTRACT_DRIFT.with_detail(detail))
 
 
 def _tracked_flight(entry: Mapping[str, object]) -> TrackedFlight | None:
@@ -365,21 +391,21 @@ def _tracked_flight(entry: Mapping[str, object]) -> TrackedFlight | None:
 
 
 def _classify_status(status: int, body: object) -> str | None:
-    """Turn a non-200 answer into a stable reason string; never includes the key."""
+    """Turn a non-200 answer into a ``WallFailure`` reason; never includes the key."""
     if status == HTTPStatus.OK:
         return None
     mapping = as_mapping(body) or {}
     if status == HTTPStatus.UNAUTHORIZED:
-        return f"flightwall_credentials_rejected:{_first_error_code(mapping)}"
+        return WallFailure.CREDENTIALS_REJECTED.with_detail(_first_error_code(mapping))
     if status == HTTPStatus.FORBIDDEN:
         if mapping.get("cloudflare_error") == True:  # noqa: E712 - JSON true only, not truthy
-            return f"flightwall_blocked:cloudflare_{mapping.get('error_code', 'unknown')}"
-        return "flightwall_forbidden"
+            return WallFailure.BLOCKED.with_detail(f"cloudflare_{mapping.get('error_code', 'unknown')}")
+        return WallFailure.FORBIDDEN.value
     if status == HTTPStatus.TOO_MANY_REQUESTS:
-        return "flightwall_rate_limited"
+        return WallFailure.RATE_LIMITED.value
     if status >= HTTPStatus.INTERNAL_SERVER_ERROR:
-        return f"flightwall_server_error:{status}"
-    return f"flightwall_unexpected_status:{status}"
+        return WallFailure.SERVER_ERROR.with_detail(status)
+    return WallFailure.UNEXPECTED_STATUS.with_detail(status)
 
 
 def _first_error_code(mapping: Mapping[str, object]) -> str:
@@ -393,7 +419,7 @@ def _first_error_code(mapping: Mapping[str, object]) -> str:
 
 
 def _request_failed(error: Exception) -> str:
-    return f"flightwall_request_failed:{type(error).__name__}"
+    return WallFailure.REQUEST_FAILED.with_detail(type(error).__name__)
 
 
 def _rfc3339_millis(value: datetime) -> str:

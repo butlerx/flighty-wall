@@ -2,7 +2,7 @@
 
 Sync Flighty Friends flights from a dedicated Google Calendar to a FlightWall Mini.
 
-> **Status:** Calendar intake, Flighty event parsing, and both fixture sanitizers are done and verified against the live calendar. The FlightWall contract was captured on 2026-09-22 from the owner's Mac (`mise run check`: 103 tests, 94% coverage). The wall client is next; nothing writes to the wall yet.
+> **Status:** Feature-complete. Calendar intake, Flighty parsing, the FlightWall client, reconciliation, and the daemon are implemented and tested against captured real data (`mise run check`: 179 tests, 94% coverage). Not yet run against the live wall from Linux — steps 7–9 below are the first deployment.
 
 ## Requirements
 
@@ -117,6 +117,95 @@ fields whose keys are never safe, and scrubs tokens, coordinates, and identifier
 — but it cannot recognise a person's name, so pass one `--redact-term` per Friend name if
 any could appear. Read every generated file before committing.
 
+## 7. Write the FlightWall credential file
+
+The daemon reuses the per-install key pair the FlightWall app already has. It does not
+expire and survives sign-out (discovery document §4.2). Copy it once from the capture with
+the extraction task, which reads `captures/flightwall.flow` and writes a `0600` file without
+printing either value:
+
+```bash
+mise run capture:credentials -- flightwall-credentials.toml
+```
+
+Then in `config.toml`, add:
+
+```toml
+[flightwall]
+credentials_path = "/path/to/flightwall-credentials.toml"
+```
+
+Confirm it works without writing anything:
+
+```bash
+uv run flighty-wall probe-wall --config config.toml
+```
+
+You should see `model: mini-v1` and your current tracked flights. Now
+`mise run capture:stop --purge` to delete the raw capture. Never commit the credential file.
+
+## 8. First dry run, then first apply
+
+`service.dry_run = true` is the default. A dry run reads both sources, plans, and prints
+what it *would* write:
+
+```bash
+uv run flighty-wall sync --config config.toml
+```
+
+Read the `status=` line. `dry_run` with `add=[...]` means a write is planned. `no_change`
+means the wall already matches. Anything ending `_not_authoritative` means a source could not
+be trusted and nothing would have been written — the `*_reason=` field says why.
+
+When the plan looks right, apply it once:
+
+```bash
+uv run flighty-wall sync --config config.toml --apply
+```
+
+Then run it again: the second `sync --apply` must report `status=no_change`. That is the
+idempotency check. Exit codes: `0` ok, `2` config, `3` a source was not authoritative, `4` the
+write was rejected or its outcome unknown, `5` another flighty-wall process holds the lock.
+
+What the daemon will and will not do to your wall:
+
+- It only ever changes `tracked_flights`. Your area, brightness, sleep, and layout settings
+  are sent back byte-for-byte as read.
+- It only removes flight numbers *it* added, recorded in its own journal. Anything already
+  on the wall when it first ran is yours and is never touched, even if a Friend later flies
+  the same number.
+- It never sends more than five entries. Flights that do not fit are reported as
+  `unplaceable`, not forced.
+- The server drops landed flights on its own; the daemon notices and forgets them.
+
+## 9. Run it as a service on Linux
+
+```bash
+sudo useradd --system --home /var/lib/flighty-wall --shell /usr/sbin/nologin flighty-wall
+sudo install -d -m 0700 -o flighty-wall -g flighty-wall /var/lib/flighty-wall /etc/flighty-wall
+sudo install -m 0600 -o flighty-wall -g flighty-wall config.toml google-service-account.json \
+  flightwall-credentials.toml /etc/flighty-wall/
+sudo git clone https://github.com/butlerx/flighty-wall /opt/flighty-wall
+sudo -u flighty-wall sh -c 'cd /opt/flighty-wall && uv sync --frozen --no-dev'
+sudo install -m 0644 systemd/flighty-wall.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now flighty-wall
+journalctl -u flighty-wall -f
+```
+
+Set `service.dry_run = false` in `/etc/flighty-wall/config.toml` once the journal shows the
+dry-run plans you expect. The unit runs as an unprivileged user with `ProtectSystem=strict`,
+no capabilities, and a `@system-service` syscall filter; `systemd-analyze security
+flighty-wall` should score well. One summary line is logged per cycle; it names flight
+numbers and reasons, never Friends, descriptions, or credentials.
+
+Rotating the Google key: create a new key in the Cloud Console, install it in place of the
+old file, `systemctl restart flighty-wall`, delete the old key. Rotating the FlightWall key:
+signing out of the app and back in does *not* rotate it (it is per-install); uninstalling and
+reinstalling the app does, after which repeat step 7. Back up `/var/lib/flighty-wall` only to
+encrypted storage — it holds the ownership journal, which is what protects your manual
+entries.
+
 ## Development checks
 
 Tools (`uv`, `prek`, `tombi`, `zizmor`) and tasks are defined in `mise.toml` (tools pinned in `mise.lock`); Python is pinned in `.python-version`.
@@ -134,8 +223,8 @@ mise run check  # lint + types + tests + deps, same as CI
 | --- | --- |
 | 1–5 Google calendar, Flighty export, service account, fixture capture | done, verified live |
 | 6 FlightWall contract capture | done; capability gate closed |
-| FlightWall client | next |
-| Reconciliation, systemd daemon | not started |
+| FlightWall client, reconciliation, daemon | done, tested against captured fixtures |
+| 7–9 credential file, first apply, systemd | **next — the first live run from Linux** |
 
 The reviewed plan, the per-unit record of what landed, and the remaining work are in
 `docs/plans/2026-09-21-001-feat-flighty-flightwall-sync-plan.md`. The capture protocol and the

@@ -287,7 +287,7 @@ Later units must fit the conventions the first three units set:
   structured `description`, `start`/`end` with explicit time zones, un-padded
   flight numbers.
 - **What are the polling defaults?** 120 seconds and seven days, bounded to
-  30–86 400 seconds and 1–30 days in `config.py`.
+  30–86 400 seconds and 1–90 days in `config.py`.
 - **How should ambiguous parsing affect safety?** The whole cycle becomes
   non-authoritative and permits no wall mutation. Implemented in U3.
 - **Is there a documented FlightWall interface that avoids the capture?** No.

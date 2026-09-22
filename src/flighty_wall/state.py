@@ -39,9 +39,10 @@ class OwnedFlight:
 
 @dataclass(frozen=True, slots=True)
 class PendingWrite:
-    """The desired list the daemon was about to POST when it last ran."""
+    """The desired list the daemon was about to POST, and what the wall held just before."""
 
     desired: tuple[str, ...]
+    before: tuple[str, ...]
     started_at: str
 
 
@@ -77,14 +78,16 @@ class StateTransaction:
         """Forget ownership of ``flight_number`` once it is off the wall."""
         self._connection.execute("DELETE FROM owned_flights WHERE flight_number = ?", (flight_number,))
 
-    def begin_pending_write(self, *, desired: Sequence[str], started_at: str) -> None:
-        """Journal the list about to be POSTed. Only one may be outstanding at a time."""
+    def begin_pending_write(
+        self, *, desired: Sequence[str], before: Sequence[str] = (), started_at: str
+    ) -> None:
+        """Journal the list about to be POSTed and the list it replaces. One at a time."""
         existing = self._connection.execute("SELECT 1 FROM pending_writes WHERE singleton = 1").fetchone()
         if existing is not None:
             raise StateError("a pending write is already journaled; resolve it before starting another")
         self._connection.execute(
-            "INSERT INTO pending_writes(singleton, desired, started_at) VALUES (1, ?, ?)",
-            (orjson.dumps(list(desired)).decode(), started_at),
+            "INSERT INTO pending_writes(singleton, desired, before, started_at) VALUES (1, ?, ?, ?)",
+            (orjson.dumps(list(desired)).decode(), orjson.dumps(list(before)).decode(), started_at),
         )
 
     def resolve_pending_write(self) -> None:
@@ -147,18 +150,11 @@ class StateStore:
     def pending_write(self) -> PendingWrite | None:
         """Return the journaled write from the last run, if it was never resolved."""
         row = self._connection.execute(
-            "SELECT desired, started_at FROM pending_writes WHERE singleton = 1"
+            "SELECT desired, before, started_at FROM pending_writes WHERE singleton = 1"
         ).fetchone()
         if row is None:
             return None
-        decoded: object = orjson.loads(str(row[0]))
-        if not isinstance(decoded, list):
-            raise StateError("pending write journal is corrupt")
-        items = cast("list[object]", decoded)
-        if not all(isinstance(item, str) for item in items):
-            raise StateError("pending write journal is corrupt")
-        desired = tuple(cast("list[str]", items))
-        return PendingWrite(desired=desired, started_at=str(row[1]))
+        return PendingWrite(desired=_string_list(row[0]), before=_string_list(row[1]), started_at=str(row[2]))
 
     @contextmanager
     def transaction(self) -> Generator[StateTransaction, None, None]:
@@ -248,6 +244,7 @@ class StateStore:
                 CREATE TABLE IF NOT EXISTS pending_writes (
                     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
                     desired TEXT NOT NULL,
+                    before TEXT NOT NULL DEFAULT '[]',
                     started_at TEXT NOT NULL
                 )
                 """
@@ -272,3 +269,13 @@ class StateStore:
         for path in (self.path, Path(f"{self.path}-wal"), Path(f"{self.path}-shm")):
             if path.exists():
                 path.chmod(0o600)
+
+
+def _string_list(raw: object) -> tuple[str, ...]:
+    decoded: object = orjson.loads(str(raw))
+    if not isinstance(decoded, list):
+        raise StateError("pending write journal is corrupt")
+    items = cast("list[object]", decoded)
+    if not all(isinstance(item, str) for item in items):
+        raise StateError("pending write journal is corrupt")
+    return tuple(cast("list[str]", items))

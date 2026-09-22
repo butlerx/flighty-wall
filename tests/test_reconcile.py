@@ -301,9 +301,9 @@ def test_recovery_with_no_pending_write_is_a_no_op(tmp_path: Path) -> None:
 def test_recovery_when_the_wall_matches_the_intent_records_ownership(tmp_path: Path) -> None:
     journal = store(tmp_path)
     with journal.transaction() as transaction:
-        transaction.begin_pending_write(desired=("EI61", "BA5"), started_at="t")
+        transaction.begin_pending_write(desired=("EI61", "BA5"), before=("EI61",), started_at="t")
 
-    outcome = recover_pending_write(journal, wall("EI61", "BA5"), before=("EI61",))
+    outcome = recover_pending_write(journal, wall("EI61", "BA5"))
 
     assert outcome == "applied"
     assert set(journal.owned_flights()) == {"BA5"}
@@ -314,9 +314,9 @@ def test_recovery_when_the_wall_matches_the_intent_records_ownership(tmp_path: P
 def test_recovery_when_the_wall_does_not_match_clears_the_intent_only(tmp_path: Path) -> None:
     journal = store(tmp_path)
     with journal.transaction() as transaction:
-        transaction.begin_pending_write(desired=("EI61", "BA5"), started_at="t")
+        transaction.begin_pending_write(desired=("EI61", "BA5"), before=("EI61",), started_at="t")
 
-    outcome = recover_pending_write(journal, wall("EI61"), before=("EI61",))
+    outcome = recover_pending_write(journal, wall("EI61"))
 
     assert outcome == "not_applied"
     assert journal.owned_flights() == {}
