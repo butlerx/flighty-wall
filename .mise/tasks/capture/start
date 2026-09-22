@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
-#MISE description="Trust the mitmproxy CA, set the system proxy, run mitmweb (Ctrl-C to stop)"
+#MISE description="Trust the mitmproxy CA, set the system proxy, run the capture proxy (Ctrl-C to stop)"
 #MISE quiet=true
 #USAGE flag "--service <service>" default="Wi-Fi" help="networksetup service to proxy"
 #USAGE flag "--port <port>" default="8080" help="Proxy listen port on 127.0.0.1"
-#USAGE flag "--web-port <port>" default="8081" help="mitmweb UI port on 127.0.0.1"
+#USAGE flag "--web" help="Run mitmweb with a UI on 127.0.0.1:8081 instead of headless mitmdump"
 
 # U4: authorized FlightWall capture from TheFlightWall.app on this Mac.
+# Headless by default: the HAR is written to captures/flightwall.har on Ctrl-C.
 # Undo with `mise run capture:stop`. Do not leave the CA trusted.
 
 set -euo pipefail
 
 SERVICE="${usage_service:-Wi-Fi}"
 PORT="${usage_port:-8080}"
-WEB_PORT="${usage_web_port:-8081}"
+WEB="${usage_web:-false}"
 CA_PEM="$HOME/.mitmproxy/mitmproxy-ca-cert.pem"
 KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 
@@ -39,17 +40,24 @@ networksetup -setsecurewebproxystate "$SERVICE" on
 
 cat <<EOF
 
-mitmweb UI: http://127.0.0.1:$WEB_PORT   flows: captures/flightwall.flow
+proxy: 127.0.0.1:$PORT   flows: captures/flightwall.flow   HAR on exit: captures/flightwall.har
 
   1. Quit and relaunch TheFlightWall.app so it picks up the proxy (that is sequence 1).
   2. Run the sequences in docs/flightwall-api-discovery.md §3.
-  3. mitmweb: File -> Export -> HAR -> captures/flightwall.har
-  4. Ctrl-C here, then: mise run capture:stop
+  3. Ctrl-C here, then: mise run capture:stop
 
 A connection error in the app after relaunch means pinning: Ctrl-C, capture:stop, read §5.
 EOF
 
-exec mitmweb --listen-host 127.0.0.1 --listen-port "$PORT" \
-  --web-host 127.0.0.1 --web-port "$WEB_PORT" \
+if [ "$WEB" = "true" ]; then
+  exec mitmweb --listen-host 127.0.0.1 --listen-port "$PORT" \
+    --web-host 127.0.0.1 --web-port 8081 \
+    --set save_stream_file=captures/flightwall.flow \
+    --set hardump=captures/flightwall.har
+fi
+
+# One line per flow so a second terminal can tail progress; bodies stay in the flow file.
+exec mitmdump --listen-host 127.0.0.1 --listen-port "$PORT" \
   --set save_stream_file=captures/flightwall.flow \
-  --set console_eventlog_verbosity=warn
+  --set hardump=captures/flightwall.har \
+  --set flow_detail=1

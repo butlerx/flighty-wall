@@ -79,8 +79,9 @@ auth looks like Supabase with Google OAuth.
 1. `mise install` (pulls `mitmproxy` alongside the other pinned tools), then
    `mise run capture:start` — generates the mitmproxy CA on first run, trusts it in the
    *login* keychain (you are prompted), sets the Wi-Fi web + secure-web proxy to
-   `127.0.0.1:8080`, and runs `mitmweb` in the foreground with flows streaming to
-   `captures/flightwall.flow`. UI at http://127.0.0.1:8081.
+   `127.0.0.1:8080`, and runs `mitmdump` headless in the foreground, one line per flow, with
+   flows streaming to `captures/flightwall.flow`. **Ctrl-C writes `captures/flightwall.har`.**
+   Pass `--web` for the mitmweb UI on http://127.0.0.1:8081 instead.
 2. Quit and relaunch `TheFlightWall.app` so it picks up the proxy. That relaunch is sequence 1.
    Record the app version (About screen, or `3.0.0` per the bundle) in §6 now.
 3. If the app shows a connection error after relaunch, it is pinning after all: Ctrl-C,
@@ -93,7 +94,7 @@ one wall, so the iPhone stays paired.
 
 ### Teardown
 
-1. In mitmweb: File → Export → HAR → `captures/flightwall.har`. Ctrl-C the proxy.
+1. Ctrl-C the proxy; `captures/flightwall.har` is written on exit.
 2. `mise run capture:stop` — turns the proxy off and removes the CA from the keychain.
 3. `mise run capture:sanitize` once with no arguments to list the hosts the capture touched,
    then again with `-- --host <host> --redact-term "<Friend Name>"` for each FlightWall host and
