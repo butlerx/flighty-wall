@@ -562,6 +562,7 @@ name = "flighty-wall"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "click" },
     { name = "google-api-python-client" },
     { name = "google-auth" },
     { name = "orjson" },
@@ -595,6 +596,7 @@ typing = [
 
 [package.metadata]
 requires-dist = [
+    { name = "click", specifier = ">=8.1,<9" },
     { name = "google-api-python-client", specifier = ">=2.160,<3" },
     { name = "google-auth", specifier = ">=2.38,<3" },
     { name = "orjson", specifier = ">=3.10,<4" },

@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import argparse
 import os
-import sys
 import tempfile
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+import click
 import orjson
 
 from .auth import build_calendar_gateway
@@ -25,137 +25,79 @@ Clock = Callable[[], datetime]
 MAX_INSPECTION_WINDOW_DAYS = 365
 """Inspection reads are diagnostic only, so they may look wider than the daemon window."""
 
-
-def run(
-    argv: Sequence[str] | None = None,
-    *,
-    gateway_factory: GatewayFactory = build_calendar_gateway,
-    now: Clock = lambda: datetime.now(UTC),
-) -> int:
-    """Run a command and return its process exit code."""
-    parser = _parser()
-    arguments = parser.parse_args(argv)
-
-    if arguments.command == "inspect-calendar":
-        return _inspect_calendar(
-            config_path=arguments.config,
-            output_path=arguments.output,
-            sensitive_terms=tuple(arguments.redact_term),
-            lookahead_days=arguments.lookahead_days,
-            lookback_days=arguments.lookback_days,
-            gateway_factory=gateway_factory,
-            now=now,
-        )
-
-    if arguments.command == "sanitize-capture":
-        return _sanitize_capture(
-            input_path=arguments.input,
-            output_dir=arguments.output_dir,
-            sensitive_terms=tuple(arguments.redact_term),
-            hosts=tuple(arguments.host),
-        )
-
-    parser.error(f"unsupported command: {arguments.command}")
-    return 2
+MappingJson = dict[str, object]
 
 
-def main() -> None:
-    """Console-script entry point."""
-    raise SystemExit(run())
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="flighty-wall")
-    commands = parser.add_subparsers(dest="command", required=True)
+@dataclass(frozen=True, slots=True)
+class Deps:
+    """Injection seam for the two effects a command cannot fake: Google and the clock."""
 
-    inspect = commands.add_parser(
-        "inspect-calendar",
-        help="read the configured calendar and write a sanitized fixture",
-    )
-    inspect.add_argument("--config", type=Path, required=True)
-    inspect.add_argument("--output", type=Path, required=True)
-    inspect.add_argument(
-        "--redact-term",
-        action="append",
-        default=[],
-        help="name or other literal text to replace in the fixture; repeat as needed",
-    )
-    inspect.add_argument(
-        "--lookahead-days",
-        type=_inspection_window,
-        default=None,
-        help=(
-            f"read this many days ahead instead of service.lookahead_days (0-{MAX_INSPECTION_WINDOW_DAYS})"
-        ),
-    )
-    inspect.add_argument(
-        "--lookback-days",
-        type=_inspection_window,
-        default=0,
-        help=f"also read this many days of past events (0-{MAX_INSPECTION_WINDOW_DAYS})",
-    )
-
-    capture = commands.add_parser(
-        "sanitize-capture",
-        help="turn a HAR capture of your own FlightWall app traffic into committable fixtures",
-    )
-    capture.add_argument("--input", type=Path, required=True, help="HAR file exported by the proxy")
-    capture.add_argument("--output-dir", type=Path, required=True)
-    capture.add_argument(
-        "--host",
-        action="append",
-        default=[],
-        help="keep only entries for this host; repeat as needed, omit to keep every host",
-    )
-    capture.add_argument(
-        "--redact-term",
-        action="append",
-        default=[],
-        help="name, device label, or other literal text to replace; repeat as needed",
-    )
-    return parser
+    gateway_factory: GatewayFactory = field(default=build_calendar_gateway)
+    now: Clock = field(default=_utc_now)
 
 
-def _inspection_window(raw: str) -> int:
-    try:
-        days = int(raw)
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"expected an integer, got {raw!r}") from None
-    if not 0 <= days <= MAX_INSPECTION_WINDOW_DAYS:
-        raise argparse.ArgumentTypeError(
-            f"must be between 0 and {MAX_INSPECTION_WINDOW_DAYS} days, got {days}"
-        )
-    return days
+@click.group()
+@click.pass_context
+def cli(ctx: click.Context) -> None:
+    """Sync Flighty Friends' flights to a FlightWall."""
+    ctx.obj = ctx.obj or Deps()
 
 
-def _inspect_calendar(
+@cli.command("inspect-calendar")
+@click.option("--config", "config_path", type=click.Path(path_type=Path), required=True)
+@click.option("--output", "output_path", type=click.Path(path_type=Path), required=True)
+@click.option(
+    "--redact-term",
+    "sensitive_terms",
+    multiple=True,
+    help="name or other literal text to replace in the fixture; repeat as needed",
+)
+@click.option(
+    "--lookahead-days",
+    type=click.IntRange(0, MAX_INSPECTION_WINDOW_DAYS),
+    default=None,
+    help="read this many days ahead instead of service.lookahead_days",
+)
+@click.option(
+    "--lookback-days",
+    type=click.IntRange(0, MAX_INSPECTION_WINDOW_DAYS),
+    default=0,
+    help="also read this many days of past events",
+)
+@click.pass_context
+def inspect_calendar(
+    ctx: click.Context,
     *,
     config_path: Path,
     output_path: Path,
     sensitive_terms: tuple[str, ...],
     lookahead_days: int | None,
     lookback_days: int,
-    gateway_factory: GatewayFactory,
-    now: Clock,
-) -> int:
+) -> None:
+    """Read the configured calendar and write a sanitized fixture."""
+    deps = ctx.ensure_object(Deps)
     try:
         config = load_config(config_path)
         reader = _reader(
             config,
-            gateway_factory,
+            deps.gateway_factory,
             lookahead_days=lookahead_days,
             lookback_days=lookback_days,
         )
     except ConfigError as error:
-        print(f"configuration error: {error}", file=sys.stderr)
-        return 2
+        click.echo(f"configuration error: {error}", err=True)
+        ctx.exit(2)
 
-    snapshot = reader.read_snapshot(now())
+    snapshot = reader.read_snapshot(deps.now())
     if snapshot.authority is not SnapshotAuthority.AUTHORITATIVE:
-        print(f"calendar inspection failed: {snapshot.reason}", file=sys.stderr)
-        return 2
+        click.echo(f"calendar inspection failed: {snapshot.reason}", err=True)
+        ctx.exit(2)
 
-    payload: dict[str, object] = {
+    payload: MappingJson = {
         "authority": snapshot.authority.value,
         "captured_at": _rfc3339(snapshot.observed_at),
         "events": [
@@ -163,53 +105,75 @@ def _inspect_calendar(
         ],
     }
     _atomic_private_json(output_path, payload)
-    print(f"wrote {len(snapshot.events)} sanitized event(s) to {output_path}")
-    return 0
+    click.echo(f"wrote {len(snapshot.events)} sanitized event(s) to {output_path}")
 
 
-def _sanitize_capture(
+@cli.command("sanitize-capture")
+@click.option(
+    "--input",
+    "input_path",
+    type=click.Path(path_type=Path),
+    required=True,
+    help="HAR file exported by the proxy",
+)
+@click.option("--output-dir", type=click.Path(path_type=Path), required=True)
+@click.option(
+    "--host",
+    "hosts",
+    multiple=True,
+    help="keep only entries for this host; repeat as needed, omit to keep every host",
+)
+@click.option(
+    "--redact-term",
+    "sensitive_terms",
+    multiple=True,
+    help="name, device label, or other literal text to replace; repeat as needed",
+)
+@click.pass_context
+def sanitize_capture(
+    ctx: click.Context,
     *,
     input_path: Path,
     output_dir: Path,
-    sensitive_terms: tuple[str, ...],
     hosts: tuple[str, ...],
-) -> int:
+    sensitive_terms: tuple[str, ...],
+) -> None:
+    """Turn a HAR capture of your own FlightWall app traffic into committable fixtures."""
     try:
         document = orjson.loads(input_path.read_bytes())
     except FileNotFoundError:
-        print(f"capture file does not exist: {input_path}", file=sys.stderr)
-        return 2
+        click.echo(f"capture file does not exist: {input_path}", err=True)
+        ctx.exit(2)
     except orjson.JSONDecodeError as error:
-        print(f"capture file is not valid JSON: {error}", file=sys.stderr)
-        return 2
+        click.echo(f"capture file is not valid JSON: {error}", err=True)
+        ctx.exit(2)
 
     parsed = as_mapping(document)
     if parsed is None:
-        print("capture file is not a HAR archive: top level is not an object", file=sys.stderr)
-        return 2
+        click.echo("capture file is not a HAR archive: top level is not an object", err=True)
+        ctx.exit(2)
 
     try:
         entries = sanitize_har(parsed, sensitive_terms=sensitive_terms, hosts=hosts)
         every_host = observed_hosts(parsed)
     except CaptureError as error:
-        print(f"capture error: {error}", file=sys.stderr)
-        return 2
+        click.echo(f"capture error: {error}", err=True)
+        ctx.exit(2)
 
     if not entries:
-        print(f"no entries matched. hosts in this capture: {', '.join(every_host) or 'none'}")
-        return 1
+        click.echo(f"no entries matched. hosts in this capture: {', '.join(every_host) or 'none'}")
+        ctx.exit(1)
 
     for entry in entries:
         _atomic_private_json(output_dir / entry.filename, entry.payload)
-        print(f"{entry.method:<6} {entry.status:<4} {entry.host}{entry.path} -> {entry.filename}")
+        click.echo(f"{entry.method:<6} {entry.status:<4} {entry.host}{entry.path} -> {entry.filename}")
 
     _atomic_private_json(
         output_dir / "manifest.json",
         manifest(entries, sensitive_terms=sensitive_terms),
     )
-    print(f"wrote {len(entries)} sanitized entr(ies) and manifest.json to {output_dir}")
-    print("review every file by hand before committing, then delete the raw capture")
-    return 0
+    click.echo(f"wrote {len(entries)} sanitized entr(ies) and manifest.json to {output_dir}")
+    click.echo("review every file by hand before committing, then delete the raw capture")
 
 
 def _reader(
@@ -270,6 +234,3 @@ def _descriptor_is_open(descriptor: int) -> bool:
 
 def _rfc3339(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
-
-
-MappingJson = dict[str, object]

@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import orjson
 import pytest
+from click.testing import CliRunner, Result
 
 from flighty_wall.capture import (
     MAX_BODY_BYTES,
@@ -22,7 +23,7 @@ from flighty_wall.capture import (
     observed_hosts,
     sanitize_har,
 )
-from flighty_wall.cli import run
+from flighty_wall.cli import cli
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -75,6 +76,14 @@ def har(*entries: dict[str, Any]) -> dict[str, Any]:
 def section(entry: CaptureEntry, name: str) -> dict[str, Any]:
     """Narrow one half of a sanitized payload so assertions can index into it."""
     return cast("dict[str, Any]", entry.payload[name])
+
+
+def invoke(arguments: list[str]) -> Result:
+    """Run a command, re-raising anything click swallowed so a bug is not read as exit 1."""
+    result = CliRunner().invoke(cli, arguments)
+    if result.exception is not None and not isinstance(result.exception, SystemExit):
+        raise result.exception
+    return result
 
 
 def test_keeps_the_contract_shape() -> None:
@@ -309,7 +318,7 @@ def test_cli_writes_private_sanitized_fixtures(tmp_path: Path) -> None:
     )
     output_dir = tmp_path / "fixtures"
 
-    exit_code = run(
+    result = invoke(
         [
             "sanitize-capture",
             "--input",
@@ -325,7 +334,7 @@ def test_cli_writes_private_sanitized_fixtures(tmp_path: Path) -> None:
 
     fixture = output_dir / "001-get-v1-flights.json"
     rendered = fixture.read_text(encoding="utf-8")
-    assert exit_code == 0
+    assert result.exit_code == 0
     assert "VY8721" in rendered
     assert "s3cr3t" not in rendered
     assert FAKE_BEARER not in rendered
@@ -333,11 +342,11 @@ def test_cli_writes_private_sanitized_fixtures(tmp_path: Path) -> None:
     assert stat.S_IMODE((output_dir / "manifest.json").stat().st_mode) == 0o600
 
 
-def test_cli_reports_hosts_when_the_allowlist_matches_nothing(tmp_path: Path, capsys: Any) -> None:
+def test_cli_reports_hosts_when_the_allowlist_matches_nothing(tmp_path: Path) -> None:
     input_path = write_har(tmp_path, har(har_entry()))
     output_dir = tmp_path / "fixtures"
 
-    exit_code = run(
+    result = invoke(
         [
             "sanitize-capture",
             "--input",
@@ -349,13 +358,13 @@ def test_cli_reports_hosts_when_the_allowlist_matches_nothing(tmp_path: Path, ca
         ]
     )
 
-    assert exit_code == 1
-    assert HOST in capsys.readouterr().out
+    assert result.exit_code == 1
+    assert HOST in result.output
     assert not output_dir.exists()
 
 
 def test_cli_rejects_a_missing_capture_file(tmp_path: Path) -> None:
-    exit_code = run(
+    result = invoke(
         [
             "sanitize-capture",
             "--input",
@@ -365,32 +374,32 @@ def test_cli_rejects_a_missing_capture_file(tmp_path: Path) -> None:
         ]
     )
 
-    assert exit_code == 2
+    assert result.exit_code == 2
 
 
 def test_cli_rejects_a_file_that_is_not_json(tmp_path: Path) -> None:
     input_path = tmp_path / "capture.har"
     input_path.write_text("not json at all", encoding="utf-8")
 
-    exit_code = run(["sanitize-capture", "--input", str(input_path), "--output-dir", str(tmp_path / "out")])
+    result = invoke(["sanitize-capture", "--input", str(input_path), "--output-dir", str(tmp_path / "out")])
 
-    assert exit_code == 2
+    assert result.exit_code == 2
 
 
 def test_cli_rejects_json_that_is_not_a_har_archive(tmp_path: Path) -> None:
     input_path = tmp_path / "capture.har"
     input_path.write_bytes(orjson.dumps([1, 2, 3]))
 
-    exit_code = run(["sanitize-capture", "--input", str(input_path), "--output-dir", str(tmp_path / "out")])
+    result = invoke(["sanitize-capture", "--input", str(input_path), "--output-dir", str(tmp_path / "out")])
 
-    assert exit_code == 2
+    assert result.exit_code == 2
 
 
 def test_cli_rejects_a_har_archive_with_a_malformed_entry(tmp_path: Path) -> None:
     input_path = write_har(tmp_path, {"log": {"entries": ["not-an-object"]}})
     output_dir = tmp_path / "fixtures"
 
-    exit_code = run(["sanitize-capture", "--input", str(input_path), "--output-dir", str(output_dir)])
+    result = invoke(["sanitize-capture", "--input", str(input_path), "--output-dir", str(output_dir)])
 
-    assert exit_code == 2
+    assert result.exit_code == 2
     assert not output_dir.exists()

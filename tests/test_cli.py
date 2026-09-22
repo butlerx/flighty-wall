@@ -7,9 +7,9 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import orjson
-import pytest
+from click.testing import CliRunner
 
-from flighty_wall.cli import run
+from flighty_wall.cli import Deps, cli
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -60,6 +60,18 @@ state_path = "{state_dir / "state.sqlite3"}"
     return config_path
 
 
+def invoke(arguments: list[str], *, gateway: FixtureGateway, now: datetime) -> int:
+    """Run a command with both effects faked, and return its exit code."""
+    result = CliRunner().invoke(
+        cli,
+        arguments,
+        obj=Deps(gateway_factory=lambda _: gateway, now=lambda: now),
+    )
+    if result.exception is not None and not isinstance(result.exception, SystemExit):
+        raise result.exception
+    return result.exit_code
+
+
 def test_inspect_calendar_writes_private_sanitized_fixture(tmp_path: Path) -> None:
     config_path = write_config(tmp_path)
     output_path = tmp_path / "fixture.json"
@@ -79,7 +91,7 @@ def test_inspect_calendar_writes_private_sanitized_fixture(tmp_path: Path) -> No
         }
     )
 
-    exit_code = run(
+    exit_code = invoke(
         [
             "inspect-calendar",
             "--config",
@@ -89,8 +101,8 @@ def test_inspect_calendar_writes_private_sanitized_fixture(tmp_path: Path) -> No
             "--redact-term",
             "Alice Smith",
         ],
-        gateway_factory=lambda _: gateway,
-        now=lambda: datetime(2026, 9, 21, 12, 0, tzinfo=UTC),
+        gateway=gateway,
+        now=datetime(2026, 9, 21, 12, 0, tzinfo=UTC),
     )
 
     fixture = orjson.loads(output_path.read_bytes())
@@ -110,10 +122,10 @@ def test_inspect_calendar_failure_does_not_write_fixture(tmp_path: Path) -> None
     config_path = write_config(tmp_path)
     output_path = tmp_path / "fixture.json"
 
-    exit_code = run(
+    exit_code = invoke(
         ["inspect-calendar", "--config", str(config_path), "--output", str(output_path)],
-        gateway_factory=lambda _: FixtureGateway(TimeoutError("secret response")),
-        now=lambda: datetime(2026, 9, 21, 12, 0, tzinfo=UTC),
+        gateway=FixtureGateway(TimeoutError("secret response")),
+        now=datetime(2026, 9, 21, 12, 0, tzinfo=UTC),
     )
 
     assert exit_code == 2
@@ -125,7 +137,7 @@ def test_inspect_calendar_window_flags_widen_the_read(tmp_path: Path) -> None:
     output_path = tmp_path / "fixture.json"
     gateway = FixtureGateway({"items": []})
 
-    exit_code = run(
+    exit_code = invoke(
         [
             "inspect-calendar",
             "--config",
@@ -137,8 +149,8 @@ def test_inspect_calendar_window_flags_widen_the_read(tmp_path: Path) -> None:
             "--lookback-days",
             "3",
         ],
-        gateway_factory=lambda _: gateway,
-        now=lambda: datetime(2026, 9, 21, 12, 0, tzinfo=UTC),
+        gateway=gateway,
+        now=datetime(2026, 9, 21, 12, 0, tzinfo=UTC),
     )
 
     assert exit_code == 0
@@ -150,22 +162,21 @@ def test_inspect_calendar_rejects_window_outside_inspection_bounds(tmp_path: Pat
     config_path = write_config(tmp_path)
     output_path = tmp_path / "fixture.json"
 
-    with pytest.raises(SystemExit) as excinfo:
-        run(
-            [
-                "inspect-calendar",
-                "--config",
-                str(config_path),
-                "--output",
-                str(output_path),
-                "--lookahead-days",
-                "400",
-            ],
-            gateway_factory=lambda _: FixtureGateway({"items": []}),
-            now=lambda: datetime(2026, 9, 21, 12, 0, tzinfo=UTC),
-        )
+    exit_code = invoke(
+        [
+            "inspect-calendar",
+            "--config",
+            str(config_path),
+            "--output",
+            str(output_path),
+            "--lookahead-days",
+            "400",
+        ],
+        gateway=FixtureGateway({"items": []}),
+        now=datetime(2026, 9, 21, 12, 0, tzinfo=UTC),
+    )
 
-    assert excinfo.value.code == 2
+    assert exit_code == 2
     assert not output_path.exists()
 
 
