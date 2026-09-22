@@ -75,6 +75,12 @@ Google documents this access model in [Share calendars](https://developers.googl
 4. Capture a sanitized fixture, repeating `--redact-term` for every Friend name that could appear:
 
    ```bash
+   mise run fixture:calendar -- --redact-term "Friend Name"
+   ```
+
+   This runs:
+
+   ```bash
    uv run flighty-wall inspect-calendar \
      --config config.toml \
      --output tests/fixtures/google_calendar/friend-flight.json \
@@ -82,7 +88,7 @@ Google documents this access model in [Share calendars](https://developers.googl
      --redact-term "Friend Name"
    ```
 
-   `--lookahead-days` and `--lookback-days` widen the read window for this command only, up to 365 days each, so a capture can reach flights outside the daemon's `service.lookahead_days`. If the command reports `wrote 0 sanitized event(s)`, the read succeeded and the window simply held no flights — widen it rather than assuming a setup problem.
+   `--lookahead-days` and `--lookback-days` widen the read window for this command only, up to 365 days each, so a capture can reach flights outside the daemon's `service.lookahead_days`. Pass them after `--` to override the task's defaults. If the command reports `wrote 0 sanitized event(s)`, the read succeeded and the window simply held no flights — widen it rather than assuming a setup problem.
 
 5. Open the generated fixture and verify it contains no names, emails, booking codes, seat numbers, private URLs, Flighty deeplinks, event UUIDs, or raw Google event IDs before committing it.
 

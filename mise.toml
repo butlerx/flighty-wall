@@ -1,3 +1,6 @@
+# Keep in step with `version:` on jdx/mise-action in .github/workflows/ci.yml.
+min_version = "2026.9.12"
+
 [tools]
 prek   = "0.4"
 tombi  = "1.2"
@@ -49,6 +52,13 @@ run         = "uv run --frozen deptry src"
 description = "Everything CI runs: lint, types, tests, deps"
 depends     = ["lint", "test", "deps"]
 quiet       = true
+
+# `mise run fixture:calendar -- --redact-term "Friend Name"`
+[tasks."fixture:calendar"]
+description = "Capture a sanitized Google Calendar fixture into tests/fixtures"
+depends     = ["sync"]
+quiet       = true
+run         = "uv run --frozen flighty-wall inspect-calendar --config config.toml --output tests/fixtures/google_calendar/friend-flight.json --lookahead-days 60 --lookback-days 3"
 
 [tasks."ci:lint"]
 depends = ["lint", "deps"]
