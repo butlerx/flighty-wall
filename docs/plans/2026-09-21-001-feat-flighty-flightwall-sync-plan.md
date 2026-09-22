@@ -350,7 +350,7 @@ two sanitizer leaks (Flighty `flighty://` deeplinks and `iCalUID`), and showed t
 
 ---
 
-- [ ] U3. **Normalize and validate Flighty calendar events**
+- [x] U3. **Normalize and validate Flighty calendar events**
 
 **Goal:** Convert known Flighty export shapes into stable flight records while rejecting ambiguous or unrelated calendar events.
 
@@ -389,6 +389,21 @@ two sanitizer leaks (Flighty `flighty://` deeplinks and `iCalUID`), and showed t
 **Verification:**
 - Every captured Flighty event fixture has an explicit expected parse result.
 - Parser output is deterministic and contains no reservation, seat, or Friend-name data unless explicitly enabled later.
+
+**Verified 2026-09-22.** `parse_cycle` turns the sanitized live fixture into two flights (`VY8721 DUB-BCN`,
+`BA5 LHR-HND`) and the cancelled fixture into an explicit `cancelled` outcome. A live read of the real
+calendar, whose summaries still carry real Friend names, parsed both events with zero unrecognized
+events, so the optional traveller label in the summary regex holds against production data.
+
+Decisions worth carrying into U6:
+- The flight key is `DESIGNATOR:ORIGIN:UTC-departure-date`, so a same-day delay updates one entry while a
+  move to another day yields a new key. Contributing event IDs are attached to the key, and the freshest
+  `updated` timestamp wins when two events disagree on the departure instant.
+- A codeshare (one leg claimed by two designators at the same instant) makes the cycle non-authoritative
+  rather than creating two guessed flights, because the calendar export carries no codeshare data.
+- The plane glyph stays a Flighty marker on purpose: if Flighty drops its description footer, a Friend's
+  flight still fails the cycle loudly instead of disappearing from the wall silently.
+- Failure reasons carry the Google event ID but never event text, so logs stay free of names and routes.
 
 ---
 

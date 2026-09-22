@@ -1,0 +1,12 @@
+{
+  "authority": "authoritative",
+  "captured_at": "2026-09-22T08:11:38.828222Z",
+  "events": [
+    {
+      "id": "event-b8cdee8f30dc",
+      "kind": "calendar#event",
+      "status": "cancelled",
+      "updated": "2026-09-22T07:41:02.000Z"
+    }
+  ]
+}
