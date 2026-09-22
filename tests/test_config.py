@@ -88,6 +88,46 @@ def test_load_config_applies_safe_defaults(sandbox: Sandbox) -> None:
     assert config.calendar_limits.max_field_chars == 8192
     assert config.calendar_limits.max_snapshot_bytes == 1_048_576
     assert config.storage.state_path == sandbox.state_path
+    assert config.flightwall is None
+
+
+def _with_flightwall(sandbox: Sandbox, *, mode: int = 0o600, host: str | None = None) -> Path:
+    wall_credentials = sandbox.root / "flightwall.toml"
+    wall_credentials.write_text('api_key = "k"\nuser_id = "u"\n', encoding="utf-8")
+    wall_credentials.chmod(mode)
+    body = CONFIG_TEMPLATE.format(
+        calendar_id="friends@example.invalid",
+        credentials=sandbox.credentials,
+        poll=120,
+        state=sandbox.state_path,
+    )
+    body += f'\n[flightwall]\ncredentials_path = "{wall_credentials}"\n'
+    if host is not None:
+        body += f'host = "{host}"\n'
+    return sandbox.write(body)
+
+
+def test_load_config_reads_the_optional_flightwall_table(sandbox: Sandbox) -> None:
+    config = config_module.load_config(_with_flightwall(sandbox))
+
+    assert config.flightwall is not None
+    assert config.flightwall.credentials_path == sandbox.root / "flightwall.toml"
+    assert config.flightwall.host == "api.theflightwall.com"
+    assert config.flightwall.timeout_seconds == 15.0
+    assert config.flightwall.user_agent.startswith("TheFlightWall/")
+
+
+@pytest.mark.parametrize(
+    "host", ["https://api.theflightwall.com", "api.theflightwall.com:443", "API.theflightwall.com"]
+)
+def test_load_config_rejects_a_flightwall_host_that_is_not_bare(sandbox: Sandbox, host: str) -> None:
+    with pytest.raises(config_module.ConfigError, match=r"flightwall\.host"):
+        config_module.load_config(_with_flightwall(sandbox, host=host))
+
+
+def test_load_config_rejects_a_world_readable_flightwall_credential_file(sandbox: Sandbox) -> None:
+    with pytest.raises(config_module.ConfigError, match="0600"):
+        config_module.load_config(_with_flightwall(sandbox, mode=0o644))
 
 
 @pytest.mark.parametrize("poll", [0, -1, 29, 86_401])

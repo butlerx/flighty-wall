@@ -5,7 +5,7 @@
 #USAGE flag "--port <port>" default="8080" help="Proxy listen port on 127.0.0.1"
 #USAGE flag "--web" help="Run mitmweb with a UI on 127.0.0.1:8081 instead of headless mitmdump"
 
-# U4: authorized FlightWall capture from TheFlightWall.app on this Mac.
+# authorized FlightWall capture from TheFlightWall.app on this Mac.
 # Headless by default: the HAR is written to captures/flightwall.har on Ctrl-C.
 # Undo with `mise run capture:stop`. Do not leave the CA trusted.
 
@@ -22,7 +22,10 @@ mkdir -p captures
 if [ ! -f "$CA_PEM" ]; then
   echo "generating mitmproxy CA"
   timeout 5 mitmdump --listen-host 127.0.0.1 --listen-port 0 >/dev/null 2>&1 || true
-  [ -f "$CA_PEM" ] || { echo "CA was not generated" >&2; exit 1; }
+  [ -f "$CA_PEM" ] || {
+    echo "CA was not generated" >&2
+    exit 1
+  }
 fi
 
 # Login keychain only, never System. Idempotent.

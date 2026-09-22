@@ -4,8 +4,6 @@
 #USAGE flag "--service <service>" default="Wi-Fi" help="networksetup service that was proxied"
 #USAGE flag "--purge" help="Also delete captures/flightwall.flow and .har (after fixtures are reviewed)"
 
-# Tear down the U4 capture environment. Safe to run more than once.
-
 set -euo pipefail
 
 SERVICE="${usage_service:-Wi-Fi}"
@@ -17,7 +15,10 @@ sudo networksetup -setsecurewebproxystate "$SERVICE" off
 
 # There may be more than one if the CA was ever regenerated.
 removed=0
-while sha=$(security find-certificate -c mitmproxy -Z "$KEYCHAIN" 2>/dev/null | awk '/SHA-1 hash/{print $3; exit}'); [ -n "$sha" ]; do
+while
+  sha=$(security find-certificate -c mitmproxy -Z "$KEYCHAIN" 2>/dev/null | awk '/SHA-1 hash/{print $3; exit}')
+  [ -n "$sha" ]
+do
   security delete-certificate -Z "$sha" "$KEYCHAIN"
   removed=$((removed + 1))
 done

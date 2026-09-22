@@ -1,4 +1,9 @@
-"""Private, crash-safe SQLite storage without FlightWall contract assumptions."""
+"""Private, crash-safe SQLite storage: the ownership journal and one pending write.
+
+The wall carries no ownership signal (see ``docs/flightwall-api-discovery.md`` §4.3), so
+this journal is the only record of which ``flight_number`` entries the daemon added. A
+``flight_number`` absent from ``owned_flights`` is the owner's and is never removed.
+"""
 
 from __future__ import annotations
 
@@ -6,18 +11,38 @@ import os
 import sqlite3
 import stat
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Self, cast
+
+import orjson
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Generator, Sequence
     from types import TracebackType
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 
 
 class StateError(RuntimeError):
-    """Raised when state storage cannot be opened safely."""
+    """Raised when state storage cannot be opened safely or an invariant would break."""
+
+
+@dataclass(frozen=True, slots=True)
+class OwnedFlight:
+    """One ``flight_number`` the daemon added, and the calendar key that asked for it."""
+
+    flight_number: str
+    first_added_at: str
+    source_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class PendingWrite:
+    """The desired list the daemon was about to POST when it last ran."""
+
+    desired: tuple[str, ...]
+    started_at: str
 
 
 class StateTransaction:
@@ -36,6 +61,35 @@ class StateTransaction:
             """,
             (key, value),
         )
+
+    def record_owned(self, flight_number: str, *, first_added_at: str, source_key: str) -> None:
+        """Record that the daemon added ``flight_number``; a repeat keeps the first timestamp."""
+        self._connection.execute(
+            """
+            INSERT INTO owned_flights(flight_number, first_added_at, source_key)
+            VALUES (?, ?, ?)
+            ON CONFLICT(flight_number) DO UPDATE SET source_key = excluded.source_key
+            """,
+            (flight_number, first_added_at, source_key),
+        )
+
+    def release_owned(self, flight_number: str) -> None:
+        """Forget ownership of ``flight_number`` once it is off the wall."""
+        self._connection.execute("DELETE FROM owned_flights WHERE flight_number = ?", (flight_number,))
+
+    def begin_pending_write(self, *, desired: Sequence[str], started_at: str) -> None:
+        """Journal the list about to be POSTed. Only one may be outstanding at a time."""
+        existing = self._connection.execute("SELECT 1 FROM pending_writes WHERE singleton = 1").fetchone()
+        if existing is not None:
+            raise StateError("a pending write is already journaled; resolve it before starting another")
+        self._connection.execute(
+            "INSERT INTO pending_writes(singleton, desired, started_at) VALUES (1, ?, ?)",
+            (orjson.dumps(list(desired)).decode(), started_at),
+        )
+
+    def resolve_pending_write(self) -> None:
+        """Clear the journaled write after it has been compared against a fresh read."""
+        self._connection.execute("DELETE FROM pending_writes WHERE singleton = 1")
 
 
 class StateStore:
@@ -78,6 +132,33 @@ class StateStore:
         """Upsert one metadata key in its own transaction."""
         with self.transaction() as transaction:
             transaction.set_metadata(key, value)
+
+    def owned_flights(self) -> dict[str, OwnedFlight]:
+        """Return every flight the daemon owns, keyed by ``flight_number``."""
+        rows = self._connection.execute(
+            """
+            SELECT flight_number, first_added_at, source_key
+            FROM owned_flights
+            ORDER BY first_added_at, flight_number
+            """
+        ).fetchall()
+        return {str(row[0]): OwnedFlight(str(row[0]), str(row[1]), str(row[2])) for row in rows}
+
+    def pending_write(self) -> PendingWrite | None:
+        """Return the journaled write from the last run, if it was never resolved."""
+        row = self._connection.execute(
+            "SELECT desired, started_at FROM pending_writes WHERE singleton = 1"
+        ).fetchone()
+        if row is None:
+            return None
+        decoded: object = orjson.loads(str(row[0]))
+        if not isinstance(decoded, list):
+            raise StateError("pending write journal is corrupt")
+        items = cast("list[object]", decoded)
+        if not all(isinstance(item, str) for item in items):
+            raise StateError("pending write journal is corrupt")
+        desired = tuple(cast("list[str]", items))
+        return PendingWrite(desired=desired, started_at=str(row[1]))
 
     @contextmanager
     def transaction(self) -> Generator[StateTransaction, None, None]:
@@ -154,7 +235,31 @@ class StateStore:
                 """
             )
             self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS owned_flights (
+                    flight_number TEXT PRIMARY KEY,
+                    first_added_at TEXT NOT NULL,
+                    source_key TEXT NOT NULL
+                )
+                """
+            )
+            self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS pending_writes (
+                    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                    desired TEXT NOT NULL,
+                    started_at TEXT NOT NULL
+                )
+                """
+            )
+            self._connection.execute(
                 "INSERT OR IGNORE INTO schema_info(singleton, version) VALUES (1, ?)",
+                (_SCHEMA_VERSION,),
+            )
+            # Schema 1 had only metadata; the two tables above are additive, so the upgrade
+            # is the CREATE IF NOT EXISTS statements plus the version bump.
+            self._connection.execute(
+                "UPDATE schema_info SET version = ? WHERE singleton = 1 AND version = 1",
                 (_SCHEMA_VERSION,),
             )
 

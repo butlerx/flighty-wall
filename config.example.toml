@@ -11,6 +11,14 @@ dry_run               = true
 [storage]
 state_path = "/var/lib/flighty-wall/state.sqlite3"
 
+# Optional until the wall client is configured. The credential file is TOML with two keys,
+# `api_key` and `user_id`, copied once from the FlightWall app capture (see README step 6).
+# It must be mode 0600. Without this table the daemon can only read the calendar.
+[flightwall]
+credentials_path = "/etc/flighty-wall/flightwall-credentials.toml"
+# host            = "api.theflightwall.com"   # the only host the capture observed
+# timeout_seconds = 15.0
+
 [calendar_limits]
 max_pages          = 10
 max_events         = 500

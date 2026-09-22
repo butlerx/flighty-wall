@@ -72,6 +72,28 @@ class Storage(BaseModel):
     state_path: UserPath
 
 
+class FlightWall(BaseModel):
+    """Which wall API to talk to and where its per-install key pair lives.
+
+    The contract is recorded in ``docs/flightwall-api-discovery.md``. The host is pinned
+    to the one the capture observed; anything else is a misconfiguration, not a feature.
+    """
+
+    model_config = _STRICT
+
+    credentials_path: UserPath
+    host: str = Field(default="api.theflightwall.com", min_length=1)
+    timeout_seconds: float = Field(default=15.0, gt=0, le=120)
+    user_agent: str = Field(default="TheFlightWall/1 CFNetwork/3860.700.1 Darwin/25.6.0", min_length=1)
+
+    @field_validator("host")
+    @classmethod
+    def _bare_hostname(cls, value: str) -> str:
+        if "/" in value or ":" in value or value != value.strip().lower():
+            raise ValueError("must be a bare lowercase hostname, no scheme, port, or path")
+        return value
+
+
 class Limits(BaseModel):
     """Hard caps that make an oversized calendar response non-authoritative."""
 
@@ -93,6 +115,7 @@ class AppConfig(BaseModel):
     # model default per instance rather than aliasing it.
     service: Service = Service()
     storage: Storage
+    flightwall: FlightWall | None = None
     calendar_limits: Limits = Limits()
 
 
@@ -125,6 +148,8 @@ def load_config(path: str | os.PathLike[str]) -> AppConfig:
     # stay pure enough to run against untrusted input without probing the host.
     _validate_state_parent(config.storage.state_path)
     require_private_file(config.google.credentials_path)
+    if config.flightwall is not None:
+        require_private_file(config.flightwall.credentials_path)
     return config
 
 

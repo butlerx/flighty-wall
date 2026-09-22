@@ -1,4 +1,3 @@
-# Keep in step with `version:` on jdx/mise-action in .github/workflows/ci.yml.
 min_version = "2026.9.12"
 
 [tools]

@@ -15,11 +15,13 @@ import orjson
 from .auth import build_calendar_gateway
 from .calendar import CalendarGateway, CalendarLimits, CalendarReader, sanitize_event_payload
 from .capture import CaptureError, manifest, observed_hosts, sanitize_har
-from .config import AppConfig, ConfigError, load_config
+from .config import AppConfig, ConfigError, FlightWall, load_config
+from .flightwall import FlightWallClient, HttpxTransport, Transport, load_credentials
 from .models import SnapshotAuthority
 from .redaction import as_mapping
 
 GatewayFactory = Callable[[Path], CalendarGateway]
+TransportFactory = Callable[[FlightWall], Transport]
 Clock = Callable[[], datetime]
 
 MAX_INSPECTION_WINDOW_DAYS = 365
@@ -32,11 +34,16 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def _httpx_transport(settings: FlightWall) -> Transport:
+    return HttpxTransport(settings.host, timeout_seconds=settings.timeout_seconds)
+
+
 @dataclass(frozen=True, slots=True)
 class Deps:
-    """Injection seam for the two effects a command cannot fake: Google and the clock."""
+    """Injection seam for the effects a command cannot fake: Google, the wall, and the clock."""
 
     gateway_factory: GatewayFactory = field(default=build_calendar_gateway)
+    transport_factory: TransportFactory = field(default=_httpx_transport)
     now: Clock = field(default=_utc_now)
 
 
@@ -174,6 +181,46 @@ def sanitize_capture(
     )
     click.echo(f"wrote {len(entries)} sanitized entr(ies) and manifest.json to {output_dir}")
     click.echo("review every file by hand before committing, then delete the raw capture")
+
+
+@cli.command("probe-wall")
+@click.option("--config", "config_path", type=click.Path(path_type=Path), required=True)
+@click.pass_context
+def probe_wall(ctx: click.Context, *, config_path: Path) -> None:
+    """Read the wall's configuration once and report the tracked flights. Never writes."""
+    deps = ctx.ensure_object(Deps)
+    try:
+        config = load_config(config_path)
+        wall = _wall(config, deps)
+    except ConfigError as error:
+        click.echo(f"configuration error: {error}", err=True)
+        ctx.exit(2)
+
+    snapshot = wall.read()
+    if snapshot.authority is not SnapshotAuthority.AUTHORITATIVE:
+        click.echo(f"wall read failed: {snapshot.reason}", err=True)
+        ctx.exit(2)
+
+    click.echo(f"observed_at: {_rfc3339(snapshot.observed_at)}")
+    click.echo(f"model: {snapshot.fingerprint.model}")
+    click.echo(f"tracked_flights: {len(snapshot.tracked_flights)}")
+    for flight in snapshot.tracked_flights:
+        click.echo(f"  {flight.flight_number}  added {flight.created_at}")
+
+
+def _wall(config: AppConfig, deps: Deps) -> FlightWallClient:
+    if config.flightwall is None:
+        raise ConfigError("no [flightwall] table: add one before probing or syncing the wall")
+    try:
+        credentials = load_credentials(config.flightwall.credentials_path)
+    except ValueError as error:
+        raise ConfigError(str(error)) from error
+    return FlightWallClient(
+        deps.transport_factory(config.flightwall),
+        credentials,
+        now=deps.now,
+        user_agent=config.flightwall.user_agent,
+    )
 
 
 def _reader(
