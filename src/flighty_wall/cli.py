@@ -183,16 +183,17 @@ def _reader(
     lookahead_days: int | None = None,
     lookback_days: int = 0,
 ) -> CalendarReader:
+    limits = config.calendar_limits
     return CalendarReader(
-        gateway=gateway_factory(config.google_credentials_path),
-        calendar_id=config.calendar_id,
-        lookahead_days=config.lookahead_days if lookahead_days is None else lookahead_days,
+        gateway=gateway_factory(config.google.credentials_path),
+        calendar_id=config.google.calendar_id,
+        lookahead_days=config.service.lookahead_days if lookahead_days is None else lookahead_days,
         lookback_days=lookback_days,
         limits=CalendarLimits(
-            max_pages=config.max_pages,
-            max_events=config.max_events,
-            max_field_chars=config.max_field_chars,
-            max_snapshot_bytes=config.max_snapshot_bytes,
+            max_pages=limits.max_pages,
+            max_events=limits.max_events,
+            max_field_chars=limits.max_field_chars,
+            max_snapshot_bytes=limits.max_snapshot_bytes,
         ),
     )
 

@@ -5,29 +5,95 @@ from __future__ import annotations
 import os
 import stat
 import tomllib
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import Annotated, Any
+
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationError, field_validator
 
 
 class ConfigError(ValueError):
     """Raised when service configuration is missing or unsafe."""
 
 
-@dataclass(frozen=True, slots=True)
-class AppConfig:
+def _as_user_path(value: object) -> object:
+    """Turn a configured string into an expanded path before strict validation runs.
+
+    Strict mode refuses to coerce a `str` into a `Path`, but TOML has no path type, so the
+    conversion has to happen here. Anything that is neither a string nor a path is passed
+    through untouched so the strict check reports it rather than coercing it silently.
+    """
+    if isinstance(value, str):
+        if not value.strip():
+            raise ValueError("must be a non-empty path")
+        return Path(value.strip()).expanduser()
+    if isinstance(value, Path):
+        return value.expanduser()
+    return value
+
+
+UserPath = Annotated[Path, BeforeValidator(_as_user_path)]
+"""A filesystem path written as a string in TOML, with a leading `~` expanded."""
+
+_STRICT = ConfigDict(frozen=True, strict=True, extra="forbid", str_strip_whitespace=True)
+"""Reject unknown keys and type coercion, so a typo fails loudly instead of taking a default."""
+
+
+class Google(BaseModel):
+    """Which calendar to read, and which service-account key opens it."""
+
+    model_config = _STRICT
+
+    calendar_id: str = Field(min_length=1)
+    credentials_path: UserPath
+
+    @field_validator("calendar_id")
+    @classmethod
+    def _not_primary(cls, value: str) -> str:
+        if value.casefold() == "primary":
+            raise ValueError("must name the dedicated calendar, not primary")
+        return value
+
+
+class Service(BaseModel):
+    """Daemon pacing and the dry-run switch that keeps writes off by default."""
+
+    model_config = _STRICT
+
+    poll_interval_seconds: int = Field(default=120, ge=30, le=86_400)
+    lookahead_days: int = Field(default=7, ge=1, le=30)
+    dry_run: bool = True
+
+
+class Storage(BaseModel):
+    """Where the daemon keeps its own state."""
+
+    model_config = _STRICT
+
+    state_path: UserPath
+
+
+class Limits(BaseModel):
+    """Hard caps that make an oversized calendar response non-authoritative."""
+
+    model_config = _STRICT
+
+    max_pages: int = Field(default=10, ge=1, le=100)
+    max_events: int = Field(default=500, ge=1, le=10_000)
+    max_field_chars: int = Field(default=8_192, ge=256, le=1_000_000)
+    max_snapshot_bytes: int = Field(default=1_048_576, ge=1_024, le=100_000_000)
+
+
+class AppConfig(BaseModel):
     """Validated non-secret service settings and credential locations."""
 
-    calendar_id: str
-    google_credentials_path: Path
-    state_path: Path
-    poll_interval_seconds: int = 120
-    lookahead_days: int = 7
-    dry_run: bool = True
-    max_pages: int = 10
-    max_events: int = 500
-    max_field_chars: int = 8_192
-    max_snapshot_bytes: int = 1_048_576
+    model_config = _STRICT
+
+    google: Google
+    # These defaults are safe to share: every model here is frozen, and pydantic copies a
+    # model default per instance rather than aliasing it.
+    service: Service = Service()
+    storage: Storage
+    calendar_limits: Limits = Limits()
 
 
 def require_private_file(path: Path) -> None:
@@ -48,78 +114,35 @@ def require_private_file(path: Path) -> None:
 def load_config(path: str | os.PathLike[str]) -> AppConfig:
     """Load and validate the service's TOML configuration."""
     config_path = Path(path).expanduser()
+    raw = _read_toml(config_path)
+
+    try:
+        config = AppConfig.model_validate(raw)
+    except ValidationError as error:
+        raise ConfigError(f"invalid configuration in {config_path}: {_describe(error)}") from error
+
+    # Both checks touch the filesystem, so they stay outside the model: validation has to
+    # stay pure enough to run against untrusted input without probing the host.
+    _validate_state_parent(config.storage.state_path)
+    require_private_file(config.google.credentials_path)
+    return config
+
+
+def _read_toml(config_path: Path) -> dict[str, Any]:
     try:
         with config_path.open("rb") as config_file:
-            raw = tomllib.load(config_file)
+            return tomllib.load(config_file)
     except FileNotFoundError as error:
         raise ConfigError(f"configuration file does not exist: {config_path}") from error
     except tomllib.TOMLDecodeError as error:
         raise ConfigError(f"invalid TOML in {config_path}: {error}") from error
 
-    google = _table(raw, "google")
-    service = _table(raw, "service", required=False)
-    storage = _table(raw, "storage")
-    limits = _table(raw, "calendar_limits", required=False)
 
-    calendar_id = _required_string(google, "calendar_id")
-    if calendar_id.casefold() == "primary":
-        raise ConfigError("google.calendar_id must name the dedicated calendar, not primary")
-
-    credentials_path = _path_value(google, "credentials_path")
-    state_path = _path_value(storage, "state_path")
-    _validate_state_parent(state_path)
-    require_private_file(credentials_path)
-
-    config = AppConfig(
-        calendar_id=calendar_id,
-        google_credentials_path=credentials_path,
-        state_path=state_path,
-        poll_interval_seconds=_integer(service, "poll_interval_seconds", 120),
-        lookahead_days=_integer(service, "lookahead_days", 7),
-        dry_run=_boolean(service, "dry_run", default=True),
-        max_pages=_integer(limits, "max_pages", 10),
-        max_events=_integer(limits, "max_events", 500),
-        max_field_chars=_integer(limits, "max_field_chars", 8_192),
-        max_snapshot_bytes=_integer(limits, "max_snapshot_bytes", 1_048_576),
+def _describe(error: ValidationError) -> str:
+    """Render a validation failure as `table.key: reason`, without echoing the value."""
+    return "; ".join(
+        f"{'.'.join(str(part) for part in item['loc'])}: {item['msg']}" for item in error.errors()
     )
-    _validate_ranges(config)
-    return config
-
-
-def _table(raw: dict[str, Any], name: str, *, required: bool = True) -> dict[str, Any]:
-    value = raw.get(name)
-    if value is None and not required:
-        return {}
-    if not isinstance(value, dict):
-        raise ConfigError(f"missing or invalid [{name}] table")
-    return cast("dict[str, Any]", value)
-
-
-def _required_string(table: dict[str, Any], key: str) -> str:
-    value = table.get(key)
-    if not isinstance(value, str) or not value.strip():
-        raise ConfigError(f"{key} must be a non-empty string")
-    return value.strip()
-
-
-def _path_value(table: dict[str, Any], key: str) -> Path:
-    return Path(_required_string(table, key)).expanduser()
-
-
-def _integer(table: dict[str, Any], key: str, default: int) -> int:
-    value = table.get(key, default)
-    if isinstance(value, bool):
-        raise ConfigError(f"{key} must be an integer")
-    if not isinstance(value, int):
-        raise ConfigError(f"{key} must be an integer")
-    return value
-
-
-def _boolean(table: dict[str, Any], key: str, *, default: bool) -> bool:
-    value = table.get(key, default)
-    if not isinstance(value, bool):
-        raise ConfigError(f"{key} must be true or false")
-    return value
 
 
 def _validate_state_parent(state_path: Path) -> None:
@@ -136,17 +159,3 @@ def _validate_state_parent(state_path: Path) -> None:
         raise ConfigError(f"cannot inspect state directory: {parent}") from error
     if not is_writable_directory:
         raise ConfigError(f"state directory is not writable: {parent}")
-
-
-def _validate_ranges(config: AppConfig) -> None:
-    ranges = {
-        "poll_interval_seconds": (config.poll_interval_seconds, 30, 86_400),
-        "lookahead_days": (config.lookahead_days, 1, 30),
-        "max_pages": (config.max_pages, 1, 100),
-        "max_events": (config.max_events, 1, 10_000),
-        "max_field_chars": (config.max_field_chars, 256, 1_000_000),
-        "max_snapshot_bytes": (config.max_snapshot_bytes, 1_024, 100_000_000),
-    }
-    for name, (value, minimum, maximum) in ranges.items():
-        if value < minimum or value > maximum:
-            raise ConfigError(f"{name} must be between {minimum} and {maximum}")
