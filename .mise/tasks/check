@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Everything CI runs: lint, types, tests, deps"
+#MISE depends=["lint", "test", "deps"]
+#MISE quiet=true
+
+set -euo pipefail

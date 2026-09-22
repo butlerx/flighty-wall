@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+#MISE description="Install the git hooks that CI also runs"
+#MISE quiet=true
+
+set -euo pipefail
+
+prek install --hook-type pre-commit --hook-type commit-msg

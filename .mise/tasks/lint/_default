@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#MISE description="ruff, mypy, pyright, tombi, yamlfmt, actionlint, zizmor"
+#MISE depends=["sync"]
+#MISE quiet=true
+#USAGE arg "[args]" var=#true help="Additional arguments passed to prek run"
+
+set -euo pipefail
+
+eval "args=(${usage_args:-})"
+prek run --all-files "${args[@]}"

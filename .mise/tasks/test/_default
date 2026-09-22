@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#MISE description="Run the test suite with coverage"
+#MISE depends=["sync"]
+#MISE alias="t"
+#MISE quiet=true
+#USAGE arg "[args]" var=#true help="Additional arguments passed to pytest"
+
+set -euo pipefail
+
+eval "args=(${usage_args:-})"
+uv run --frozen pytest --cov "${args[@]}"

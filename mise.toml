@@ -1,0 +1,12 @@
+# Run `mise tasks` to list tasks, `mise run <task>` to run one.
+# Python itself is pinned in .python-version and managed by uv, not mise.
+
+[tools]
+prek   = "0.4"
+tombi  = "1.2"
+uv     = "0.12"
+zizmor = "latest"
+
+[settings]
+experimental = true
+lockfile     = true

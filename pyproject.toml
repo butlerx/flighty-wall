@@ -4,11 +4,32 @@ version         = "0.1.0"
 description     = "Sync Flighty Friends flights to a FlightWall Mini"
 readme          = "README.md"
 requires-python = ">=3.11"
+license         = "Apache-2.0"
+license-files   = ["LICENSE", "NOTICE"]
+authors         = [{ name = "Cian Butler", email = "butlerx@notthe.cloud" }]
+keywords        = ["daemon", "flightwall", "flighty", "google-calendar"]
+classifiers     = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Environment :: No Input/Output (Daemon)",
+  "Intended Audience :: End Users/Desktop",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Home Automation",
+  "Typing :: Typed",
+]
 dependencies    = [
   "google-api-python-client>=2.160,<3",
   "google-auth>=2.38,<3",
   "orjson>=3.10,<4",
 ]
+
+[project.urls]
+Homepage = "https://github.com/butlerx/flighty-wall"
+Issues   = "https://github.com/butlerx/flighty-wall/issues"
 
 [project.scripts]
 flighty-wall = "flighty_wall.cli:main"
@@ -33,13 +54,16 @@ typing = [
 ]
 
 [build-system]
-requires      = ["setuptools>=75"]
+# PEP 639 `license` / `license-files` need setuptools 77 or newer.
+requires      = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.coverage.run]
 branch = true
+omit   = ["*/__main__.py"]
 
 [tool.coverage.report]
+fail_under   = 80
 exclude_also = [
   # Don't complain about imported type defs
   "if TYPE_CHECKING",
@@ -66,16 +90,8 @@ warn_unused_configs         = true
 warn_unused_ignores         = true
 
 [[tool.mypy.overrides]]
-module                 = ["google.*", "googleapiclient.*"]
+module                 = ["google.*"]
 ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module                = "tests.*"
-disallow_untyped_defs = false
-
-[[tool.mypy.overrides]]
-module                = "*.tests.*"
-disallow_untyped_defs = false
 
 [tool.pyright]
 pythonVersion    = "3.11"
@@ -135,17 +151,6 @@ ignore = [
 # The CLI reports status on stdout/stderr by design; that is its user interface.
 "src/flighty_wall/cli.py" = ["T201"]
 
-# Benchmarks are structured like tests (pytest collects them the same way), so
-# they need the same relaxations.
-"**/benchmarks/**/*.py" = [
-  "D100",                    # Missing docstring in public module
-  "D103",                    # Missing docstring in public function
-  "D104",                    # Missing docstring in public package
-  "S101",                    # Use of assert detected
-  "S105",                    # Possible hardcoded password in string literal
-  "S106",                    # Possible hardcoded password in argument
-]
-
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
@@ -157,19 +162,16 @@ max-args    = 8
 combine-as-imports = true
 
 [tool.ruff.lint.flake8-type-checking]
-# BaseSettings (a BaseModel subclass) also evaluates annotations at runtime, so
-# its annotation-only imports must stay at runtime, not move into TYPE_CHECKING.
-runtime-evaluated-base-classes = [
-  "pydantic.BaseModel",
-  "pydantic_settings.BaseSettings",
-]
+# pydantic evaluates annotations at runtime, so annotation-only imports on its
+# models must stay at runtime, not move into TYPE_CHECKING.
+runtime-evaluated-base-classes = ["pydantic.BaseModel"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "json".msg        = "Use orjson instead of json"
 "import json".msg = "Use orjson instead of json"
 
 [tool.ruff.lint.mccabe]
-max-complexity = 40
+max-complexity = 10
 
 [tool.setuptools]
 package-dir = { "" = "src" }
