@@ -243,3 +243,7 @@ def configure_logging(level: str) -> None:
         stream=None,
         force=True,
     )
+    # httpx logs every request URL at INFO. The cycle summary already says what happened,
+    # and the URL never varies, so this is pure noise in the journal.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
