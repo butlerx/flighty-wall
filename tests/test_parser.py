@@ -230,7 +230,7 @@ def test_malformed_flight_number_fails_the_whole_cycle_closed() -> None:
 
     assert cycle.authority is SnapshotAuthority.NON_AUTHORITATIVE
     assert cycle.flights == ()
-    assert cycle.reason == "parse_flighty_event_unrecognized:event-bad"
+    assert cycle.reason == "parse_event_unrecognized:event-bad"
 
 
 def test_failed_cycle_reason_contains_no_event_text() -> None:
@@ -278,10 +278,12 @@ def test_missing_route_context_fails_the_cycle_closed() -> None:
     cycle = parse_cycle(snapshot_of([routeless]))
 
     assert cycle.authority is SnapshotAuthority.NON_AUTHORITATIVE
-    assert cycle.reason == "parse_flighty_event_unrecognized:event-routeless"
+    assert cycle.reason == "parse_event_unrecognized:event-routeless"
 
 
-def test_non_flighty_event_is_ignored_and_keeps_the_cycle_authoritative() -> None:
+def test_every_event_on_the_calendar_must_parse_as_a_flight() -> None:
+    # The calendar is dedicated to flights, so there is no "unrelated event" category:
+    # anything that does not parse fails the cycle loudly rather than being skipped.
     unrelated = {
         "id": "event-dentist",
         "status": "confirmed",
@@ -292,9 +294,26 @@ def test_non_flighty_event_is_ignored_and_keeps_the_cycle_authoritative() -> Non
 
     cycle = parse_cycle(snapshot_of([friend_event("event-a"), unrelated]))
 
+    assert cycle.authority is SnapshotAuthority.NON_AUTHORITATIVE
+    assert cycle.reason == "parse_event_unrecognized:event-dentist"
+    assert cycle.flights == ()
+    assert outcomes(snapshot_of([unrelated]))["event-dentist"] is ParseOutcome.UNRECOGNIZED
+
+
+def test_a_flight_without_any_flighty_marker_still_parses() -> None:
+    # A hand-written event in the same shape, no plane glyph, no Flighty footer.
+    plain = {
+        "id": "event-plain",
+        "status": "confirmed",
+        "summary": "DUB -> BCN | VY 8721",
+        "start": {"dateTime": "2026-09-21T09:55:00+01:00", "timeZone": "Europe/Dublin"},
+        "end": {"dateTime": "2026-09-21T13:20:00+02:00", "timeZone": "Europe/Madrid"},
+    }
+
+    cycle = parse_cycle(snapshot_of([plain]))
+
     assert cycle.authority is SnapshotAuthority.AUTHORITATIVE
     assert [flight.designator for flight in cycle.flights] == ["VY8721"]
-    assert outcomes(snapshot_of([unrelated]))["event-dentist"] is ParseOutcome.NOT_A_FLIGHT
 
 
 def test_non_authoritative_snapshot_never_yields_flights() -> None:

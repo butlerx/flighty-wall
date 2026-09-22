@@ -235,9 +235,11 @@ Three facts about the FlightWall contract (`docs/flightwall-api.md`) shape every
 
 The calendar side is the same shape. Every read — Google page, parsed cycle, wall document —
 is either *authoritative* or carries a reason it is not, and nothing is written from a
-non-authoritative read. A Flighty event the parser does not recognise fails the whole cycle
-rather than being skipped, so a format change shows up as a loud stop, not a silently missing
-flight.
+non-authoritative read. The calendar is dedicated to flights, so every event on it must parse
+as one — there is no "unrelated event" category. An event the parser does not recognise fails
+the whole cycle rather than being skipped, so a format change (or a stray non-flight event)
+shows up as a loud stop, not a silently missing flight. Any event of the form
+`[label:] [✈] DUB→BCN • VY 8721` is accepted, whether Flighty wrote it or you did.
 
 There is no display mode to manage. Tracked flights show alongside area traffic; the daemon
 adds and removes entries and does nothing else to the wall.

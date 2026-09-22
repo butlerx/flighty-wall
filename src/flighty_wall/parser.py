@@ -35,7 +35,6 @@ class ParseOutcome(StrEnum):
     CANCELLED = "cancelled"
     ALL_DAY = "all_day"
     MISSING_DEPARTURE = "missing_departure"
-    NOT_A_FLIGHT = "not_a_flight"
     UNRECOGNIZED = "unrecognized"
 
 
@@ -132,7 +131,7 @@ def parse_cycle(snapshot: Snapshot) -> ParsedCycle:
     if unrecognized is not None:
         return _failed(
             interpretations,
-            f"parse_flighty_event_unrecognized:{unrecognized.event_id}",
+            f"parse_event_unrecognized:{unrecognized.event_id}",
         )
 
     flights = _desired_flights(interpretations)
@@ -152,9 +151,6 @@ def _interpret(event: SourceEvent) -> EventInterpretation:
         return EventInterpretation(event.event_id, ParseOutcome.CANCELLED)
 
     summary = _normalize(event.summary)
-    if not _is_flighty(event, summary):
-        return EventInterpretation(event.event_id, ParseOutcome.NOT_A_FLIGHT)
-
     if _CANCELLATION.search(summary):
         return EventInterpretation(event.event_id, ParseOutcome.CANCELLED)
 
@@ -242,21 +238,6 @@ def _failed(interpretations: tuple[EventInterpretation, ...], reason: str) -> Pa
     )
 
 
-def _is_flighty(event: SourceEvent, summary: str) -> bool:
-    """Decide whether an event must parse as a flight or may be ignored.
-
-    The plane glyph stays a marker on purpose: if Flighty ever drops its description
-    footer, a Friends' flight still fails the cycle loudly instead of vanishing from
-    the wall without a trace.
-    """
-    description = event.fields.get("description")
-    haystack = summary
-    if isinstance(description, str):
-        haystack = f"{haystack}\n{_normalize(description)}"
-    folded = haystack.casefold()
-    return any(marker in folded for marker in _FLIGHTY_MARKERS)
-
-
 def _is_all_day(event: SourceEvent) -> bool:
     start = event.fields.get("start")
     if not isinstance(start, Mapping):
@@ -269,8 +250,6 @@ def _normalize(text: str) -> str:
     """Fold the export's non-breaking and zero-width characters into plain spacing."""
     return _WHITESPACE.sub(" ", text.translate(_TRANSLATION)).strip()
 
-
-_FLIGHTY_MARKERS = ("synced by flighty", "flighty.app", "flighty://", "✈")
 
 _TRANSLATION: dict[int, str | None] = {
     0x00A0: " ",  # no-break space, used between carrier code and flight number
