@@ -142,8 +142,7 @@ def run_cycle(
             recovery=recovery,
         )
 
-    wanted = tuple(Wanted(flight.designator, flight.key) for flight in parsed.flights)
-    the_plan = plan(wanted, wall_snapshot, store.owned_flights())
+    the_plan = plan(_wanted(parsed), wall_snapshot, store.owned_flights())
 
     if not apply:
         status = CycleStatus.DRY_RUN if the_plan.changed else CycleStatus.NO_CHANGE
@@ -159,6 +158,21 @@ def run_cycle(
     else:
         status = CycleStatus.UNKNOWN
     return CycleReport(status, now, calendar_snapshot, parsed, wall_snapshot, the_plan, write, recovery)
+
+
+def _wanted(parsed: ParsedCycle) -> tuple[Wanted, ...]:
+    """One ``Wanted`` per flight number, keeping the earliest departure.
+
+    The wall keys entries by ``flight_number`` alone and has no date, so a number that
+    flies twice in the window (``AA577`` on the 28th and again on the 9th) is one entry.
+    ``parsed.flights`` is sorted by departure, so the first occurrence is the soonest, and
+    the later leg becomes wanted on its own once the earlier one has landed and the
+    server has dropped it.
+    """
+    seen: dict[str, Wanted] = {}
+    for flight in parsed.flights:
+        seen.setdefault(flight.designator, Wanted(flight.designator, flight.key))
+    return tuple(seen.values())
 
 
 class Cycle(Protocol):

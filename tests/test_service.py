@@ -264,6 +264,24 @@ def test_summary_never_contains_the_friend_name_or_description(tmp_path: Path) -
     journal.close()
 
 
+def test_same_flight_number_twice_in_the_window_is_wanted_once(tmp_path: Path) -> None:
+    # Flighty exports every leg. AA577 DFW->DEN on two different dates is two calendar
+    # events, two parser keys, but one wall entry: the wall has no date field.
+    first = flighty_event("e1", "Alice", "AA", "577", "DFW-DEN")
+    second = flighty_event("e2", "Bob", "AA", "577", "DFW-DEN")
+    second["start"] = {"dateTime": "2026-11-05T10:00:00-06:00", "timeZone": "America/Chicago"}
+    second["end"] = {"dateTime": "2026-11-05T12:00:00-07:00", "timeZone": "America/Denver"}
+    wall = FakeWall([wall_snapshot()])
+
+    report, journal = cycle(tmp_path, cal=calendar(first, second), wall=wall, apply=True)
+
+    assert report.status is CycleStatus.APPLIED
+    assert report.wanted == ("AA577", "AA577")  # both legs parsed
+    assert wall.writes == [("AA577",)]  # one entry written
+    assert set(journal.owned_flights()) == {"AA577"}
+    journal.close()
+
+
 # --- run_forever -----------------------------------------------------------------------------
 
 
