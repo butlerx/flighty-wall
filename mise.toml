@@ -2,10 +2,11 @@
 min_version = "2026.9.12"
 
 [tools]
-prek   = "0.4"
-tombi  = "1.2"
-uv     = "0.12"
-zizmor = "latest"
+"pipx:mitmproxy" = "12.2"
+prek             = "0.4"
+tombi            = "1.2"
+uv               = "0.12"
+zizmor           = "latest"
 
 [settings]
 experimental = true
@@ -69,3 +70,14 @@ quiet   = true
 depends = ["test"]
 hide    = true
 quiet   = true
+
+# --- U4: authorized FlightWall capture from TheFlightWall.app on this Mac -------------------
+# capture:start and capture:stop are task files in .mise/tasks/capture/ (multi-line scripts).
+
+# `mise run capture:sanitize -- --host api.example --redact-term "Friend Name"`
+# Run once with no arguments to list every host the capture touched.
+[tasks."capture:sanitize"]
+description = "Turn captures/flightwall.har into sanitized fixtures under tests/fixtures/flightwall"
+depends     = ["sync"]
+quiet       = true
+run         = "uv run --frozen flighty-wall sanitize-capture --input captures/flightwall.har --output-dir tests/fixtures/flightwall"

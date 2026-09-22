@@ -48,7 +48,7 @@ These must be settled by the capture. The first one changes the design.
 
 ## 2. Capture protocol
 
-Run this once. It needs about 90 minutes, most of it the controlled sequences in §3.
+Run this once. About 60 minutes from the Mac, most of it the controlled sequences in §3.
 
 ### Safety rules
 
@@ -68,22 +68,39 @@ These are constraints on the capture itself, not advice:
 
 ### Setup
 
-1. Start an HTTPS inspection proxy bound to localhost or a single LAN address, with flow
-   persistence off or pointed at `captures/`.
-2. Point the device or emulator at the proxy and install the proxy's CA in the device trust
-   store.
-3. Open the FlightWall app and confirm traffic appears. Record the app version and platform
-   now, while it is in front of you — it belongs in the provenance table in §6.
-4. If the app refuses to connect, it is pinning certificates. Stop and go to §5.
+**Preferred: the Mac.** `TheFlightWall.app` (iOS build 3.0.0, Expo 54) runs natively on Apple
+Silicon and is already signed in to the wall. Inspecting it from the bundle on 2026-09-22:
+`NSAllowsArbitraryLoads = true` and no pinning code in `main.jsbundle`, so interception is
+expected to work. Expected hosts from the bundle — **not yet observed, do not copy into §4
+until seen in a real request** — are `api.theflightwall.com`, `cdn.theflightwall.com`,
+`plus.theflightwall.com`, and a Supabase project (`wvlaidatdjufalntsqsw.supabase.co`);
+auth looks like Supabase with Google OAuth.
+
+1. `mise install` (pulls `mitmproxy` alongside the other pinned tools), then
+   `mise run capture:start` — generates the mitmproxy CA on first run, trusts it in the
+   *login* keychain (you are prompted), sets the Wi-Fi web + secure-web proxy to
+   `127.0.0.1:8080`, and runs `mitmweb` in the foreground with flows streaming to
+   `captures/flightwall.flow`. UI at http://127.0.0.1:8081.
+2. Quit and relaunch `TheFlightWall.app` so it picks up the proxy. That relaunch is sequence 1.
+   Record the app version (About screen, or `3.0.0` per the bundle) in §6 now.
+3. If the app shows a connection error after relaunch, it is pinning after all: Ctrl-C,
+   `mise run capture:stop`, and go to §5.
+
+**Fallback: Android.** Install `com.axisnimble.theflightwall` from Google Play, replug the wall
+to show the QR code, scan it. Then point the phone at a proxy bound to one LAN address and
+install the CA in the user trust store; the vendor FAQ confirms multiple devices can control
+one wall, so the iPhone stays paired.
 
 ### Teardown
 
-1. Export the HAR, then run the sanitizer (see `tests/fixtures/flightwall/README.md`).
-2. Read every produced fixture by hand.
-3. Delete the raw HAR and any proxy flow files.
-4. Remove the CA from the device trust store; discard the emulator image if you used one.
-5. Sign out of the app on the capture device, and rotate the account password if a login was
-   captured.
+1. In mitmweb: File → Export → HAR → `captures/flightwall.har`. Ctrl-C the proxy.
+2. `mise run capture:stop` — turns the proxy off and removes the CA from the keychain.
+3. `mise run capture:sanitize` once with no arguments to list the hosts the capture touched,
+   then again with `-- --host <host> --redact-term "<Friend Name>"` for each FlightWall host and
+   name (see `tests/fixtures/flightwall/README.md`). Read every produced fixture by hand.
+4. `mise run capture:stop --purge` — deletes the raw flow and HAR once fixtures are committed.
+5. Sign out of the app and back in so the captured session token is dead. If the capture
+   included a Google sign-in, also revoke the app at https://myaccount.google.com/permissions.
 
 ---
 

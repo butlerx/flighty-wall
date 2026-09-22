@@ -2,6 +2,11 @@
 
 lockfile_version = 2
 
+[[tools."pipx:mitmproxy"]]
+version = "12.2.3"
+backend = "pipx:mitmproxy"
+specifiers = ["12.2"]
+
 [[tools.prek]]
 version = "0.4.14"
 backend = "aqua:j178/prek"

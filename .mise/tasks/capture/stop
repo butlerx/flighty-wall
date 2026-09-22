@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+#MISE description="Turn the proxy off and remove the mitmproxy CA; --purge deletes raw captures"
+#MISE quiet=true
+#USAGE flag "--service <service>" default="Wi-Fi" help="networksetup service that was proxied"
+#USAGE flag "--purge" help="Also delete captures/flightwall.flow and .har (after fixtures are reviewed)"
+
+# Tear down the U4 capture environment. Safe to run more than once.
+
+set -euo pipefail
+
+SERVICE="${usage_service:-Wi-Fi}"
+KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
+
+echo "disabling $SERVICE proxies"
+networksetup -setwebproxystate "$SERVICE" off
+networksetup -setsecurewebproxystate "$SERVICE" off
+
+# There may be more than one if the CA was ever regenerated.
+removed=0
+while sha=$(security find-certificate -c mitmproxy -Z "$KEYCHAIN" 2>/dev/null | awk '/SHA-1 hash/{print $3; exit}'); [ -n "$sha" ]; do
+  security delete-certificate -Z "$sha" "$KEYCHAIN"
+  removed=$((removed + 1))
+done
+echo "removed $removed mitmproxy CA cert(s) from the login keychain"
+
+if [ "${usage_purge:-false}" = "true" ]; then
+  rm -f captures/flightwall.flow captures/flightwall.har
+  echo "deleted raw flow and HAR"
+else
+  echo "raw capture kept in captures/ — run with --purge once fixtures are written and reviewed"
+fi
+
+echo
+echo "by hand: sign out of TheFlightWall.app and back in so the captured session token is dead"
