@@ -30,12 +30,13 @@ def test_transaction_rolls_back_on_failure(tmp_path: Path) -> None:
     store = StateStore(tmp_path / "state" / "state.sqlite3")
     store.set_metadata("status", "before")
 
-    with (
-        pytest.raises(RuntimeError, match="interrupt"),
-        store.transaction() as transaction,
-    ):
-        transaction.set_metadata("status", "after")
-        raise RuntimeError("interrupt")
+    def write_then_fail() -> None:
+        with store.transaction() as transaction:
+            transaction.set_metadata("status", "after")
+            raise RuntimeError("interrupt")
+
+    with pytest.raises(RuntimeError, match="interrupt"):
+        write_then_fail()
 
     assert store.get_metadata("status") == "before"
     store.close()

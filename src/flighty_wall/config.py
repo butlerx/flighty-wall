@@ -32,7 +32,6 @@ class AppConfig:
 
 def require_private_file(path: Path) -> None:
     """Require a regular file with no group or world permissions."""
-
     try:
         file_stat = path.stat()
     except FileNotFoundError as error:
@@ -48,7 +47,6 @@ def require_private_file(path: Path) -> None:
 
 def load_config(path: str | os.PathLike[str]) -> AppConfig:
     """Load and validate the service's TOML configuration."""
-
     config_path = Path(path).expanduser()
     try:
         with config_path.open("rb") as config_file:
@@ -78,7 +76,7 @@ def load_config(path: str | os.PathLike[str]) -> AppConfig:
         state_path=state_path,
         poll_interval_seconds=_integer(service, "poll_interval_seconds", 120),
         lookahead_days=_integer(service, "lookahead_days", 7),
-        dry_run=_boolean(service, "dry_run", True),
+        dry_run=_boolean(service, "dry_run", default=True),
         max_pages=_integer(limits, "max_pages", 10),
         max_events=_integer(limits, "max_events", 500),
         max_field_chars=_integer(limits, "max_field_chars", 8_192),
@@ -94,7 +92,7 @@ def _table(raw: dict[str, Any], name: str, *, required: bool = True) -> dict[str
         return {}
     if not isinstance(value, dict):
         raise ConfigError(f"missing or invalid [{name}] table")
-    return cast(dict[str, Any], value)
+    return cast("dict[str, Any]", value)
 
 
 def _required_string(table: dict[str, Any], key: str) -> str:
@@ -117,7 +115,7 @@ def _integer(table: dict[str, Any], key: str, default: int) -> int:
     return value
 
 
-def _boolean(table: dict[str, Any], key: str, default: bool) -> bool:
+def _boolean(table: dict[str, Any], key: str, *, default: bool) -> bool:
     value = table.get(key, default)
     if not isinstance(value, bool):
         raise ConfigError(f"{key} must be true or false")

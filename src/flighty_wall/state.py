@@ -5,11 +5,13 @@ from __future__ import annotations
 import os
 import sqlite3
 import stat
-from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
-from types import TracebackType
-from typing import Self
+from typing import TYPE_CHECKING, Self
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+    from types import TracebackType
 
 _SCHEMA_VERSION = 1
 
@@ -25,6 +27,7 @@ class StateTransaction:
         self._connection = connection
 
     def set_metadata(self, key: str, value: str) -> None:
+        """Upsert one metadata key inside the caller's transaction."""
         self._connection.execute(
             """
             INSERT INTO metadata(key, value)
@@ -57,9 +60,8 @@ class StateStore:
 
     @property
     def schema_version(self) -> int:
-        row = self._connection.execute(
-            "SELECT version FROM schema_info WHERE singleton = 1"
-        ).fetchone()
+        """Return the schema version recorded in the database."""
+        row = self._connection.execute("SELECT version FROM schema_info WHERE singleton = 1").fetchone()
         if row is None:
             raise StateError("state database has no schema version")
         try:
@@ -68,17 +70,18 @@ class StateStore:
             raise StateError("state database has an invalid schema version") from error
 
     def get_metadata(self, key: str) -> str | None:
-        row = self._connection.execute(
-            "SELECT value FROM metadata WHERE key = ?", (key,)
-        ).fetchone()
+        """Return one metadata value, or None when the key is absent."""
+        row = self._connection.execute("SELECT value FROM metadata WHERE key = ?", (key,)).fetchone()
         return None if row is None else str(row[0])
 
     def set_metadata(self, key: str, value: str) -> None:
+        """Upsert one metadata key in its own transaction."""
         with self.transaction() as transaction:
             transaction.set_metadata(key, value)
 
     @contextmanager
     def transaction(self) -> Generator[StateTransaction, None, None]:
+        """Run a block inside BEGIN IMMEDIATE, rolling back on any exception."""
         try:
             self._connection.execute("BEGIN IMMEDIATE")
             transaction = StateTransaction(self._connection)
@@ -92,10 +95,12 @@ class StateStore:
             self._secure_sqlite_files()
 
     def close(self) -> None:
+        """Close the connection and re-assert private file modes."""
         self._connection.close()
         self._secure_sqlite_files()
 
     def __enter__(self) -> Self:
+        """Return this store for use as a context manager."""
         return self
 
     def __exit__(
@@ -104,6 +109,7 @@ class StateStore:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
+        """Close the store when the context exits."""
         self.close()
 
     def _prepare_directory(self) -> None:
@@ -154,8 +160,7 @@ class StateStore:
 
         if self.schema_version != _SCHEMA_VERSION:
             raise StateError(
-                f"unsupported state schema version {self.schema_version}; "
-                f"expected {_SCHEMA_VERSION}"
+                f"unsupported state schema version {self.schema_version}; expected {_SCHEMA_VERSION}"
             )
 
     def _secure_sqlite_files(self) -> None:

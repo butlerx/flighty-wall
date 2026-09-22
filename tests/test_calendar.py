@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from flighty_wall.calendar import (
     CalendarLimits,
@@ -12,6 +11,9 @@ from flighty_wall.calendar import (
     sanitize_event_payload,
 )
 from flighty_wall.models import SnapshotAuthority
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 class FakeGateway:
@@ -190,8 +192,7 @@ def test_sanitizer_preserves_structure_and_flight_number_but_removes_pii() -> No
     event.update(
         {
             "description": (
-                "Confirmation: ABC123\nSeat: 12A\nalice@example.com\n"
-                "https://calendar.example/private-link"
+                "Confirmation: ABC123\nSeat: 12A\nalice@example.com\nhttps://calendar.example/private-link"
             ),
             "creator": {"email": "alice@example.com", "displayName": "Alice Smith"},
             "organizer": {"email": "owner@example.com"},

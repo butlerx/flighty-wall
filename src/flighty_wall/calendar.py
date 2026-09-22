@@ -3,29 +3,44 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Protocol, cast
 
+import orjson
+
 from .models import Snapshot, SnapshotAuthority, SourceEvent
 
 
 class CalendarServiceRequest(Protocol):
-    def execute(self) -> Mapping[str, object]: ...
+    """A prepared Google API request that has not been sent yet."""
+
+    def execute(self) -> Mapping[str, object]:
+        """Send the request and return the decoded response body."""
+        ...
 
 
 class CalendarEventsResource(Protocol):
-    def list(self, **parameters: object) -> CalendarServiceRequest: ...
+    """The `events` collection of the Calendar v3 service."""
+
+    def list(self, **parameters: object) -> CalendarServiceRequest:
+        """Build an `events.list` request from the given query parameters."""
+        ...
 
 
 class CalendarService(Protocol):
-    def events(self) -> CalendarEventsResource: ...
+    """The subset of the discovery-built Calendar service this package uses."""
+
+    def events(self) -> CalendarEventsResource:
+        """Return the `events` collection."""
+        ...
 
 
 class CalendarGateway(Protocol):
+    """One page of calendar reads, expressed without any Google types."""
+
     def list_events_page(
         self,
         *,
@@ -33,11 +48,15 @@ class CalendarGateway(Protocol):
         time_min: datetime,
         time_max: datetime,
         page_token: str | None,
-    ) -> Mapping[str, object]: ...
+    ) -> Mapping[str, object]:
+        """Read one page of events in `[time_min, time_max]`."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
 class CalendarLimits:
+    """Hard caps that make an oversized calendar response non-authoritative."""
+
     max_pages: int
     max_events: int
     max_field_chars: int
@@ -62,6 +81,7 @@ class GoogleCalendarGateway:
         time_max: datetime,
         page_token: str | None,
     ) -> Mapping[str, object]:
+        """Read one page of single, time-ordered events including cancellations."""
         request = self.service.events().list(
             calendarId=calendar_id,
             timeMin=_rfc3339(time_min),
@@ -95,17 +115,16 @@ class CalendarReader:
         self._limits = limits
 
     def read_snapshot(self, now: datetime) -> Snapshot:
+        """Return an authoritative snapshot, or a failed one if the window is incomplete."""
         if now.tzinfo is None:
             raise ValueError("snapshot time must include a timezone")
 
         observed_at = now.astimezone(UTC)
         time_min = observed_at - timedelta(days=self._lookback_days)
         time_max = observed_at + timedelta(days=self._lookahead_days)
+        accumulator = _PageAccumulator(limits=self._limits, observed_at=observed_at)
         page_token: str | None = None
         page_count = 0
-        byte_count = 0
-        events_by_id: dict[str, SourceEvent] = {}
-        raw_by_id: dict[str, Mapping[str, object]] = {}
 
         while True:
             page_count += 1
@@ -119,46 +138,14 @@ class CalendarReader:
                     time_max=time_max,
                     page_token=page_token,
                 )
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - any gateway failure must fail closed
                 return _failed(
                     observed_at,
                     f"calendar_request_failed:{type(error).__name__}",
                 )
 
             try:
-                byte_count += len(
-                    json.dumps(page, default=str, separators=(",", ":")).encode("utf-8")
-                )
-                if byte_count > self._limits.max_snapshot_bytes:
-                    raise CalendarDataError("calendar_limit_exceeded:max_snapshot_bytes")
-                if _longest_string(page) > self._limits.max_field_chars:
-                    raise CalendarDataError("calendar_limit_exceeded:max_field_chars")
-
-                raw_items_value = page.get("items", [])
-                if not isinstance(raw_items_value, list):
-                    raise CalendarDataError("calendar_response_invalid:items")
-                raw_items = cast(list[object], raw_items_value)
-
-                for raw_event_value in raw_items:
-                    raw_event = _string_mapping(raw_event_value)
-                    if raw_event is None:
-                        raise CalendarDataError("calendar_response_invalid:event")
-                    event = _source_event(raw_event, observed_at)
-                    prior = raw_by_id.get(event.event_id)
-                    if prior is not None and prior != raw_event:
-                        raise CalendarDataError("calendar_response_invalid:duplicate_event")
-                    raw_by_id[event.event_id] = raw_event
-                    events_by_id[event.event_id] = event
-                    if len(events_by_id) > self._limits.max_events:
-                        raise CalendarDataError("calendar_limit_exceeded:max_events")
-
-                raw_next_token = page.get("nextPageToken")
-                if raw_next_token is None:
-                    page_token = None
-                elif isinstance(raw_next_token, str):
-                    page_token = raw_next_token
-                else:
-                    raise CalendarDataError("calendar_response_invalid:next_page_token")
+                page_token = accumulator.absorb(page)
             except CalendarDataError as error:
                 return _failed(observed_at, str(error))
 
@@ -166,15 +153,70 @@ class CalendarReader:
                 return Snapshot(
                     authority=SnapshotAuthority.AUTHORITATIVE,
                     observed_at=observed_at,
-                    events=tuple(events_by_id.values()),
+                    events=accumulator.events(),
                 )
+
+
+class _PageAccumulator:
+    """Collect events across pages, rejecting the whole cycle on any bound breach."""
+
+    def __init__(self, *, limits: CalendarLimits, observed_at: datetime) -> None:
+        self._limits = limits
+        self._observed_at = observed_at
+        self._byte_count = 0
+        self._events: dict[str, SourceEvent] = {}
+        self._raw: dict[str, Mapping[str, object]] = {}
+
+    def absorb(self, page: Mapping[str, object]) -> str | None:
+        """Add one response page and return the next page token, if any."""
+        self._charge_bounds(page)
+        for raw_event_value in self._items(page):
+            self._add_event(raw_event_value)
+        return self._next_token(page)
+
+    def events(self) -> tuple[SourceEvent, ...]:
+        """Return every accepted event in first-seen order."""
+        return tuple(self._events.values())
+
+    def _charge_bounds(self, page: Mapping[str, object]) -> None:
+        self._byte_count += len(orjson.dumps(page, default=str))
+        if self._byte_count > self._limits.max_snapshot_bytes:
+            raise CalendarDataError("calendar_limit_exceeded:max_snapshot_bytes")
+        if _longest_string(page) > self._limits.max_field_chars:
+            raise CalendarDataError("calendar_limit_exceeded:max_field_chars")
+
+    def _items(self, page: Mapping[str, object]) -> list[object]:
+        raw_items_value = page.get("items", [])
+        if not isinstance(raw_items_value, list):
+            raise CalendarDataError("calendar_response_invalid:items")
+        return cast("list[object]", raw_items_value)
+
+    def _add_event(self, raw_event_value: object) -> None:
+        raw_event = _string_mapping(raw_event_value)
+        if raw_event is None:
+            raise CalendarDataError("calendar_response_invalid:event")
+        event = _source_event(raw_event, self._observed_at)
+        prior = self._raw.get(event.event_id)
+        if prior is not None and prior != raw_event:
+            raise CalendarDataError("calendar_response_invalid:duplicate_event")
+        self._raw[event.event_id] = raw_event
+        self._events[event.event_id] = event
+        if len(self._events) > self._limits.max_events:
+            raise CalendarDataError("calendar_limit_exceeded:max_events")
+
+    def _next_token(self, page: Mapping[str, object]) -> str | None:
+        raw_next_token = page.get("nextPageToken")
+        if raw_next_token is None:
+            return None
+        if isinstance(raw_next_token, str):
+            return raw_next_token
+        raise CalendarDataError("calendar_response_invalid:next_page_token")
 
 
 def sanitize_event_payload(
     event: Mapping[str, object], *, sensitive_terms: Sequence[str] = ()
 ) -> dict[str, object]:
     """Return a structurally useful fixture with direct identifiers and PII removed."""
-
     sanitized = _sanitize_mapping(event, sensitive_terms)
     raw_id = event.get("id")
     if isinstance(raw_id, str):
@@ -223,7 +265,7 @@ def _optional_datetime(value: object, event_id: str, field: str) -> datetime | N
     if not isinstance(value, str):
         raise CalendarDataError(f"calendar_response_invalid:{field}:{event_id}")
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value)
     except ValueError as error:
         raise CalendarDataError(f"calendar_response_invalid:{field}:{event_id}") from error
     if parsed.tzinfo is None:
@@ -251,7 +293,7 @@ def _longest_string(value: object) -> int:
         lengths = [max(len(key), _longest_string(item)) for key, item in mapping.items()]
         return max(lengths, default=0)
     if isinstance(value, list):
-        items = cast(list[object], value)
+        items = cast("list[object]", value)
         return max((_longest_string(item) for item in items), default=0)
     return 0
 
@@ -259,7 +301,7 @@ def _longest_string(value: object) -> int:
 def _string_mapping(value: object) -> Mapping[str, object] | None:
     if not isinstance(value, Mapping):
         return None
-    return cast(Mapping[str, object], value)
+    return cast("Mapping[str, object]", value)
 
 
 _DROPPED_FIXTURE_KEYS = {
@@ -283,9 +325,7 @@ _BOOKING = re.compile(
 _SEAT = re.compile(r"(?im)\bseat\s*[:#-]?\s*[A-Z0-9-]+")
 
 
-def _sanitize_mapping(
-    value: Mapping[str, object], sensitive_terms: Sequence[str]
-) -> dict[str, object]:
+def _sanitize_mapping(value: Mapping[str, object], sensitive_terms: Sequence[str]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, item in value.items():
         if key in _DROPPED_FIXTURE_KEYS:
@@ -303,12 +343,12 @@ def _sanitize_value(value: object, sensitive_terms: Sequence[str]) -> object:
         redacted = _SEAT.sub("Seat: <redacted>", redacted)
         for term in sensitive_terms:
             if term:
-                redacted = re.sub(re.escape(term), "<redacted-name>", redacted, flags=re.I)
+                redacted = re.sub(re.escape(term), "<redacted-name>", redacted, flags=re.IGNORECASE)
         return redacted
     mapping = _string_mapping(value)
     if mapping is not None:
         return _sanitize_mapping(mapping, sensitive_terms)
     if isinstance(value, list):
-        items = cast(list[object], value)
+        items = cast("list[object]", value)
         return [_sanitize_value(item, sensitive_terms) for item in items]
     return value

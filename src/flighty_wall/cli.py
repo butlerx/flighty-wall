@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 import tempfile
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+
+import orjson
 
 from .auth import build_calendar_gateway
 from .calendar import CalendarGateway, CalendarLimits, CalendarReader, sanitize_event_payload
@@ -30,7 +31,6 @@ def run(
     now: Clock = lambda: datetime.now(UTC),
 ) -> int:
     """Run a command and return its process exit code."""
-
     parser = _parser()
     arguments = parser.parse_args(argv)
 
@@ -51,7 +51,6 @@ def run(
 
 def main() -> None:
     """Console-script entry point."""
-
     raise SystemExit(run())
 
 
@@ -76,8 +75,7 @@ def _parser() -> argparse.ArgumentParser:
         type=_inspection_window,
         default=None,
         help=(
-            f"read this many days ahead instead of service.lookahead_days "
-            f"(0-{MAX_INSPECTION_WINDOW_DAYS})"
+            f"read this many days ahead instead of service.lookahead_days (0-{MAX_INSPECTION_WINDOW_DAYS})"
         ),
     )
     inspect.add_argument(
@@ -132,8 +130,7 @@ def _inspect_calendar(
         "authority": snapshot.authority.value,
         "captured_at": _rfc3339(snapshot.observed_at),
         "events": [
-            sanitize_event_payload(event.fields, sensitive_terms=sensitive_terms)
-            for event in snapshot.events
+            sanitize_event_payload(event.fields, sensitive_terms=sensitive_terms) for event in snapshot.events
         ],
     }
     _atomic_private_json(output_path, payload)
@@ -168,17 +165,20 @@ def _atomic_private_json(path: Path, payload: MappingJson) -> None:
         dir=path.parent,
         prefix=f".{path.name}.",
         suffix=".tmp",
-        text=True,
+        text=False,
     )
     temporary_path = Path(temporary_name)
     try:
         os.fchmod(descriptor, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as output:
-            json.dump(payload, output, indent=2, sort_keys=True)
-            output.write("\n")
+        encoded = orjson.dumps(
+            payload,
+            option=orjson.OPT_INDENT_2 | orjson.OPT_SORT_KEYS | orjson.OPT_APPEND_NEWLINE,
+        )
+        with os.fdopen(descriptor, "wb") as output:
+            output.write(encoded)
             output.flush()
             os.fsync(output.fileno())
-        os.replace(temporary_path, path)
+        temporary_path.replace(path)
         path.chmod(0o600)
     except BaseException:
         os.close(descriptor) if _descriptor_is_open(descriptor) else None

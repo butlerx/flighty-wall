@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
-import json
 import stat
-from collections.abc import Mapping
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pytest as pytest_module
+import orjson
+import pytest
 
-from flighty_wall.calendar import CalendarGateway
 from flighty_wall.cli import run
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from pathlib import Path
+
+    from flighty_wall.calendar import CalendarGateway
 
 
 class FixtureGateway:
@@ -90,7 +93,7 @@ def test_inspect_calendar_writes_private_sanitized_fixture(tmp_path: Path) -> No
         now=lambda: datetime(2026, 9, 21, 12, 0, tzinfo=UTC),
     )
 
-    fixture = json.loads(output_path.read_text(encoding="utf-8"))
+    fixture = orjson.loads(output_path.read_bytes())
     rendered = repr(fixture)
     assert exit_code == 0
     assert fixture["authority"] == "authoritative"
@@ -147,7 +150,7 @@ def test_inspect_calendar_rejects_window_outside_inspection_bounds(tmp_path: Pat
     config_path = write_config(tmp_path)
     output_path = tmp_path / "fixture.json"
 
-    with pytest_module.raises(SystemExit) as excinfo:
+    with pytest.raises(SystemExit) as excinfo:
         run(
             [
                 "inspect-calendar",

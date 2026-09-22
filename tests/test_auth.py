@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
 
 from flighty_wall.auth import CALENDAR_READONLY_SCOPE, build_calendar_gateway
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_build_calendar_gateway_uses_service_account_and_readonly_scope(tmp_path: Path) -> None:
