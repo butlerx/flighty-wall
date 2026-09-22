@@ -17,17 +17,19 @@ deepened: 2026-09-21
 | U1 Foundation and state | done | `b9ad5c7`; config moved to pydantic in `3e3122c` |
 | U2 Google Calendar intake | done, verified live | `97f9a63`, `be1a3b0`, `b792263` |
 | U3 Flighty event parser | done, verified live | `b87df2c` |
-| U4 FlightWall contract capture | **mostly done**; 4 cheap sequences open | contract captured 2026-09-22 from the owner's Mac; fixtures committed; gate rows 6 and 7 open |
-| U5 FlightWall client | **unblocked**, not started | reduced design: whole-document GET/POST, no mode, no per-entry ID |
-| U6 Reconciliation engine | not started | gated by U5; auto-remove waits on gate row 6, sixth-flight handling on row 7 |
+| U4 FlightWall contract capture | **done** | contract captured and probed 2026-09-22; fixtures committed; gate closed |
+| U5 FlightWall client | **next** | reduced design: whole-document GET/POST, no mode, no per-entry ID, daemon-enforced cap of five |
+| U6 Reconciliation engine | not started | gated by U5 only |
 | U7 Daemon and operations | not started | gated by U6 |
 
 `mise run check` is green: 103 tests, 94% coverage, all hooks passing.
 
 **What the capture changed:** area tracking and tracked flights coexist, so there is no display
 mode to lease and **R9 is withdrawn**. The wall exposes one configuration document; add and
-remove are both a whole-document `POST`, last-writer-wins, keyed by `flight_number`. Ownership
-is therefore entirely daemon-side. Details: `docs/flightwall-api-discovery.md` §4, §7, §8.
+remove are both a whole-document `POST`, unconditional last-writer-wins (`version` is
+decorative), keyed by `flight_number`. The server has no entry cap and removes landed flights
+on its own. Ownership and the five-entry limit are therefore entirely daemon-side. Details:
+`docs/flightwall-api-discovery.md` §4 and §7.
 
 ---
 
@@ -54,7 +56,7 @@ Flighty already knows the owner's Friends' upcoming flights, but FlightWall requ
 - R5. Make unchanged sync runs idempotent. — pending (U6)
 - R6. Make polling and lookahead configurable; default to a two-minute poll and seven-day lookahead. — **met (U1)**; poll loop pending (U7)
 - R7. Persist explicit ownership of daemon-created FlightWall entries. — pending (U5, U6); the wall offers no ownership signal, so this is entirely the daemon's journal
-- R8. Never modify or remove manually created FlightWall entries. — pending (U6); gate row 5 passes on the journal design
+- R8. Never modify or remove manually created FlightWall entries. — pending (U6); the wall offers no ownership signal, so the journal is the only guard
 - R9. ~~When FlightWall exposes authoritative activity and mode provenance, temporarily use Flight Tracking Mode…~~ — **withdrawn 2026-09-22**: the wall has no display mode; tracked flights show regardless of area settings
 - R10. Keep all overlapping active Friend flights available. — parser side met (U3); wall side pending (U6); five-entry cap confirmed
 - R11. Run unattended under systemd with restart behavior and actionable logs. — pending (U7)
@@ -105,7 +107,7 @@ Later units must fit the conventions the first three units set:
 
 ### Institutional Learnings
 
-- A sanitizer cannot be trusted until it has processed real data. The U2 live capture found two leaks (`flighty://` deeplinks, `iCalUID`) that mocked tests had missed. The U4 sanitizer has only seen synthetic HARs; its gate row must be re-checked by hand once real fixtures exist.
+- A sanitizer cannot be trusted until it has processed real data. The U2 live capture found two leaks (`flighty://` deeplinks, `iCalUID`) that mocked tests had missed; the U4 live capture found a third (`userId`). Both were fixed with a rule and a regression test. Scan every new fixture against its raw source before committing.
 - Flighty's export carries invisible characters in `summary`: `U+00A0` between carrier and number, `U+200B` around the route arrow. Any new text handling on calendar data must normalize both first.
 - Google API success proves Google readability, not Flighty freshness. Observation time and each event's `updated` are separate fields and must stay separate in diagnostics.
 
@@ -131,7 +133,7 @@ Later units must fit the conventions the first three units set:
 - **Bounded full-window reads instead of Calendar sync tokens:** A two-minute poll over the next seven days is small for a dedicated calendar. Page, event, field-length, and total-byte caps prevent a calendar writer from exhausting the daemon; exceeding any cap makes the cycle non-authoritative.
 - **Cycle-wide fail-closed parsing:** Any unrecognized or ambiguous event that could be a Flighty export makes the cycle non-authoritative for all wall mutations. The sanitized real export is the parser's contract fixture.
 - **FlightWall capability gate before contract-specific code:** The captured contract must prove complete list/mode reads, stable identifiers, simultaneous flights, authoritative activity, safe conditional deletion and mode provenance, recoverable uncertain mutations, capacity behavior, and reschedule semantics. A missing capability stops implementation and returns for a scope decision; it does not license a weaker guarantee.
-- **Capacity of five is a normal condition:** Confirmed: the app stops offering Add at five entries. Server behaviour when POSTing six is still untested (gate row 7). Reconciliation must plan for being at capacity without treating it as an error and without ever evicting an entry the daemon does not own.
+- **Capacity of five is the daemon's rule, not the server's:** The server stored ten entries when asked; only the app enforces five. The client refuses to POST more than five, and reconciliation plans for being at capacity without treating it as an error and without ever evicting an entry the daemon does not own.
 - **Isolated FlightWall adapter:** Endpoint, authentication, headers, payloads, identifiers, and error semantics come only from the owner's authorized capture. Production requires normal TLS verification and an allowlisted hostname; capture trust never reaches the daemon.
 - **Whole-document writes demand a read-modify-write discipline:** The wall has one configuration document and `POST` replaces all of it. The daemon must GET immediately before every POST, touch only `request_config.tracked_flights`, send every other byte back unchanged, and refuse to write if the document's key set or `display_config.model` differs from the captured fingerprint. This is the only defence against clobbering the owner's area, brightness, and sleep settings.
 - **Ownership journal is the sole ownership record:** The wall carries no actor, source, or per-entry ID. The daemon may remove a `flight_number` only if its own journal says the daemon added it; any `flight_number` present on first observation is manual forever. Ambiguous entries are never adopted or deleted.
@@ -156,14 +158,16 @@ Later units must fit the conventions the first three units set:
 - **Does the wall distinguish manual entries from app-added ones?** No. Ownership rests entirely on the daemon's journal.
 - **What are the delete and mode-write preconditions?** None exist. Writes are whole-document, last-writer-wins; `version` did not change across two successful writes. Safe removal is read-modify-write with the journal as the filter.
 
-### Open — cheap to close, see discovery §8
+- **Server at six entries:** accepts and stores them. The daemon caps at five itself.
+- **Interrupted POST:** a full-body interruption applies; a partial one does not. Both recover by re-read and content-identical re-POST. Never blind-retry.
+- **`version`:** decorative. The server stores whatever it is sent.
+- **Post-landing:** the server removes landed flights from `tracked_flights` itself. The daemon will see its own entries vanish; that is expected, not drift, and the journal entry is simply closed.
+- **Key lifetime:** the per-install `x-api-key` survives sign-out/sign-in and ~7 h idle. `x-user-id` and body `userId` are decorative but must be sent. Cloudflare rejects requests without an app-shaped `user-agent`.
+- **Contract drift and rate limits:** `display_config.model`, the top-level key set, and the `tracked_flights[]` key set are the fingerprint. ~55 requests in an afternoon drew no `429`.
 
-- **Server behaviour at six entries** (gate row 7). Blocks adding when the wall is full.
-- **Recovery after an interrupted POST** (gate row 6). Blocks automatic removal.
-- **Is `version` decorative?** POST with a wrong value and see.
-- **Post-landing behaviour.** "Will auto-remove" and tracking history are visible in the app but not in `/configuration`; the daemon may find its entries gone without having removed them.
-- **Key lifetime and extraction.** The daemon needs the per-user `x-api-key` and `x-user-id` from the owner's signed-in app. Whether they survive sign-out, and where they live in the app container, is unknown.
-- **Contract drift and rate limits:** `display_config.model`, the top-level key set, and the `tracked_flights[]` key set are the fingerprint. Unknown fingerprints force read-only mode until recapture.
+### Open — does not block U5
+
+- **Where the app derives the 43-character key.** Not in AsyncStorage, NSUserDefaults, or the login keychain; the Hermes bundle is not readable as text. U5's setup step copies it once from the capture; that is sufficient because it does not expire.
 
 ---
 
@@ -267,7 +271,7 @@ flowchart TB
     U1[U1 Foundation ✓]
     U2[U2 Calendar intake ✓]
     U3[U3 Flighty parser ✓]
-    U4[U4 FlightWall capture — mostly done]
+    U4[U4 FlightWall capture ✓]
     U5[U5 FlightWall client]
     U6[U6 Reconciliation engine]
     U7[U7 Daemon and operations]
@@ -297,7 +301,7 @@ flowchart TB
 
 ---
 
-- [ ] U4. **Capture and document the authorized FlightWall contract** — **contract captured 2026-09-22; four cheap sequences open**
+- [x] U4. **Capture and document the authorized FlightWall contract** — captured and probed 2026-09-22; gate closed
 
 **Goal:** Observe the exact commercial-app requests needed to list, add, and remove tracked flights, and prove the capability gate, before any code targets the backend.
 
@@ -315,15 +319,17 @@ flowchart TB
 - No display mode. No per-entry ID, actor, or source. `flight_number` is stored as typed.
 - Fingerprint: `display_config.model == "mini-v1"`, the top-level key set, the `tracked_flights[]` key set.
 
-**Gate verdict:** rows 1–5, 8, 10 pass (several as "reduced": the contract is simpler than the gate assumed). Row 9 not applicable. **Rows 6 and 7 open** — U5 may start; U6 must not enable automatic removal until row 6 closes, nor add a sixth flight until row 7 does.
+**Probed after the capture, from the shell with the captured key (wall restored to `[]` afterwards):**
+- `version` is decorative: `1`, `99`, and absent all returned `200` and applied.
+- The server stores 6 and 10 entries. The five-flight cap is client-side only.
+- A POST interrupted after the full body **applies**; interrupted mid-body it does not. Both recover by re-read + content-identical re-POST.
+- The server removed the owner's `EI61` on its own after it departed, with the app closed.
+- The per-install `x-api-key` survived sign-out/sign-in and ~7 h idle; `x-user-id` / body `userId` authorize nothing; a non-app `user-agent` gets a Cloudflare `403`.
+- Error shapes recorded: `401 {success:false, errors:[{code:1102|1101, message}]}`, Cloudflare 1010.
 
-**Remaining — each a few minutes with the proxy up (discovery §8):**
-1. Sequence 9: POST a six-entry document; record status and body. Closes row 7.
-2. Sequence 12: interrupt a POST before the response, GET, compare. Closes row 6.
-3. POST with a wrong `version` to confirm it is decorative.
-4. Sequence 13: watch `EI61` land; diff `/configuration` before and after.
-5. Sequence 14: re-run `GET /configuration` with the captured key pair after sign-out and after 24 h.
-6. Locate the per-user `x-api-key` and `x-user-id` in the app container and document the extraction step for the daemon's credential file.
+**Gate verdict:** all rows pass or are not applicable (§7). Several pass "reduced" — the contract has no conditional writes, no server cap, and no ownership signal — and each has a daemon-side answer written into U5/U6 below.
+
+**Still open, not blocking:** where the app derives the 43-character key. U5's setup step copies it from the capture once; it does not expire.
 
 ---
 
@@ -333,7 +339,7 @@ flowchart TB
 
 **Requirements:** R5, R7, R8, R10, R12, R14; F2, F3
 
-**Dependencies:** U4 gate rows 1–5, 8, 10 (passed). Rows 6–7 gate U6 behaviour, not this unit.
+**Dependencies:** U4 (done).
 
 **Files:**
 - Create: `src/flighty_wall/flightwall.py`
@@ -348,10 +354,10 @@ flowchart TB
 - `WallSnapshot` is authoritative only when `GET /configuration` returns `200`, parses, and matches the fingerprint (`display_config.model`, top-level key set, `tracked_flights[]` key set). Same shape as `calendar.Snapshot`: authority is explicit, never inferred.
 - Exactly two operations: `read() -> WallSnapshot` and `replace_tracked_flights(snapshot, flights) -> WallSnapshot`. The second takes the snapshot it was planned against, mutates only `request_config.tracked_flights` in a copy of that snapshot's raw document, adds `userId`, POSTs, and returns the re-read. Every other byte of the document is passed through untouched — the client never constructs a document from its own model.
 - New entries are `{flight_number, created_at: now (RFC3339 Z), show_distance_travelled: true, show_metrics: true}` — the shape the app writes. The designator from U3 maps 1:1 onto `flight_number`.
-- Refuse to POST more than five entries until gate row 7 says what the server does with six.
-- HTTPS with normal certificate validation, allowlisted host, no redirects followed. Capture CA and `verify=False` are rejected at config load.
-- Bounded timeouts. GET may retry; POST never retries blindly — an unknown outcome is returned as unknown for U6 to resolve by re-reading.
-- Distinct errors for 401/403 (bad key pair), 429, 5xx, transport, schema/fingerprint drift. Drift forces read-only mode.
+- Refuse to POST more than five entries. The server would accept them; what the wall then displays is undefined and must never be tested on the owner's wall.
+- HTTPS with normal certificate validation, allowlisted host, no redirects followed. Capture CA and `verify=False` are rejected at config load. Send the app-shaped `user-agent` from §4.2 — Cloudflare rejects anything else — plus `x-user-id` and body `userId`, which authorize nothing but are what the app sends.
+- Bounded timeouts. GET may retry; POST never retries blindly — a full-body interruption applies server-side, so an unknown outcome is returned as unknown for U6 to resolve by re-reading.
+- Distinct errors for `401` (`errors[].code` 1101/1102: key missing/invalid), Cloudflare `403` 1010 (never retry), `429`, `5xx`, transport, schema/fingerprint drift. Drift forces read-only mode.
 
 **Test scenarios:**
 - Happy path: `get-configuration.json` → authoritative snapshot with `['EI61']`, fingerprint `mini-v1`.
@@ -376,7 +382,7 @@ flowchart TB
 
 **Requirements:** R3, R4, R5, R6, R7, R8, R10, R13, R14; F1, F2, F3; AE1, AE2, AE4 (AE3 reduced: overlap without mode)
 
-**Dependencies:** U5. Automatic removal additionally waits on U4 gate row 6; adding when the wall holds five waits on row 7.
+**Dependencies:** U5.
 
 **Files:**
 - Create: `src/flighty_wall/reconcile.py`
@@ -387,7 +393,8 @@ flowchart TB
 - Ownership is the journal, full stop. On the first authoritative wall read, every `flight_number` present is recorded as manual. Thereafter a `flight_number` is removable only if the journal says the daemon added it and no calendar source still wants it. A manual entry is never removed, even if a Friend later flies the same number — the daemon adopts nothing.
 - Desired list = manual entries (unchanged) + daemon-owned entries still wanted + new wanted flights, in that order, capped at five. If the cap is hit, add nothing new, remove only conclusively stale owned entries, and report the unplaceable flights. Never evict a manual entry.
 - Consume U3's key: a same-day time change is a no-op on the wall; a day change is remove-old + add-new in one POST (a single document write, so no intermediate state).
-- Journal pending intent (document hash, desired list) before the POST; resolve it against the re-read the client returns. On restart with an unresolved intent, re-read and re-plan — POST is idempotent on content, so a lost response is recovered by comparing, not retrying.
+- Journal pending intent (document hash, desired list) before the POST; resolve it against the re-read the client returns. On restart with an unresolved intent, re-read and re-plan — a lost response may or may not have applied (proved both ways), and POST is idempotent on content, so recovery is comparing, never retrying.
+- The server removes landed flights itself. An owned `flight_number` that vanishes from the wall without a daemon write is closed in the journal, not re-added.
 - If the wall's list already equals the desired list, do not POST. Ten identical cycles must make zero writes.
 - Authoritative dry-run and normal mode share the planner. With the wall unavailable, dry-run emits a provisional local-intent report with every remote-dependent action marked unknown.
 
@@ -466,7 +473,8 @@ flowchart TB
 | Risk | Mitigation |
 | --- | --- |
 | FlightWall changes its undocumented backend | Fingerprint `display_config.model`, top-level keys, and `tracked_flights[]` keys on every read; drift forces read-only mode until recapture. |
-| FlightWall lacks a requirement-critical capability | Gate rows 6–7 still open. U6 keeps automatic removal and sixth-flight adds disabled until they close; nothing else is blocked. |
+| Server accepts more than five entries | The daemon caps at five before every POST and reports unplaceable flights; what the wall shows with six is undefined and never tested on the owner's device. |
+| Server removes a landed flight the daemon still thinks it owns | Expected behaviour, not drift: the journal entry is closed on the next read and nothing is re-added. |
 | Owner edits the app during the daemon's GET→POST window | Last-writer-wins is inherent to the contract. Keep the window to one read and one write, re-read after every POST, and treat any unexpected difference as a reason to re-plan rather than retry. |
 | Daemon clobbers the owner's area, brightness, or sleep settings | The client passes every non-`tracked_flights` byte of the fetched document back unchanged and never builds a document from its own model. Tested byte-for-byte against the captured POST bodies. |
 | HTTPS interception leaks credentials or weakens production TLS | Ephemeral restricted capture environment, raw flows deleted, credentials rotated, CA removed; capture trust and disabled verification rejected at config load. |
@@ -498,7 +506,7 @@ flowchart TB
 - `README.md` carries all setup: Google calendar and service account (done), Flighty export (done), fixture capture (done), FlightWall capture (done from the Mac; four short sequences open), and — from U7 — daemon installation, first dry run, controlled first apply, credential rotation, backup, troubleshooting.
 - `docs/flightwall-api-discovery.md` records app version and capture date per fixture so future breakage can be compared with the known contract; §8 lists what is still to capture.
 - Back up SQLite state only to encrypted, access-controlled storage; include WAL/SHM consistency, retention, restoration, and secure deletion procedures.
-- First deployment sequence: close gate rows 6–7 → extract the key pair into a `0600` credentials file → `capture:stop --purge` → fixture tests → `probe-wall` read-only → review an authoritative dry run → one controlled apply → enable the daemon.
+- First deployment sequence: copy the key pair from the capture into a `0600` credentials file → `capture:stop --purge` → fixture tests → `probe-wall` read-only → review an authoritative dry run → one controlled apply → enable the daemon.
 
 ---
 

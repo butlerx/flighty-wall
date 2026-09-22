@@ -23,8 +23,10 @@ There is no `list-empty`, `mode-*`, or `remove-already-gone` fixture, because th
 has no separate list call, no mode, and no per-entry delete: the daemon GETs the document,
 edits `request_config.tracked_flights`, and POSTs it back.
 
-Still to capture (see the discovery document §8): the server's response to a six-entry
-document, an interrupted POST, a stale `version`, and post-landing behaviour.
+The follow-up probes (six entries, interrupted POST, stale `version`, bad key, missing
+`user-agent`, post-landing) were run from the shell and are recorded in the discovery document
+§3, §4.3, §4.5, §4.6 rather than as fixtures: every write probe returned the same document
+shape as `post-configuration-add.json`, and the two error shapes are short enough to quote.
 
 ## Producing fixtures
 

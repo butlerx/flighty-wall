@@ -98,8 +98,8 @@ The fixture is written with mode `0600`. `config.toml`, credential files, runtim
 
 **Done 2026-09-22.** The FlightWall backend has no public API, so its contract was observed
 from `TheFlightWall.app` running on the owner's Mac, against the owner's own account and
-wall. The findings, the four committed fixtures, and the capability gate are in
-`docs/flightwall-api-discovery.md`; four short follow-up sequences are listed in its §8.
+wall, then probed from the shell. The findings, the four committed fixtures, and the closed
+capability gate are in `docs/flightwall-api-discovery.md`.
 
 To re-run or extend the capture:
 
@@ -133,7 +133,7 @@ mise run check  # lint + types + tests + deps, same as CI
 | Step | State |
 | --- | --- |
 | 1–5 Google calendar, Flighty export, service account, fixture capture | done, verified live |
-| 6 FlightWall contract capture | done; four short follow-up sequences open (discovery §8) |
+| 6 FlightWall contract capture | done; capability gate closed |
 | FlightWall client | next |
 | Reconciliation, systemd daemon | not started |
 

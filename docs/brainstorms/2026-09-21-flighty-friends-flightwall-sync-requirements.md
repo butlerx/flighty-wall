@@ -135,11 +135,13 @@ Flighty already contains current and upcoming flights for the owner's Flighty Fr
 - [Affects R7, R8] **FlightWall requests.** `GET`/`POST https://api.theflightwall.com/configuration` with `x-api-key` and `x-user-id` headers; tracked flights are a list in one whole-document, last-writer-wins configuration. Captured 2026-09-22 from the owner's Mac. Full contract: `docs/flightwall-api-discovery.md`.
 - [Affects R9] **Mode exclusivity.** Not exclusive — no mode exists. R9 withdrawn.
 
-### Open — short follow-up captures
+- [Affects R8, R10] **Capacity.** The server has no cap (it stored ten); the five-flight limit is the app's, so the daemon enforces it itself. Probed 2026-09-22.
+- [Affects R14] **Interrupted writes.** A full-body interruption applies; a partial one does not. Both recover by re-read and content-identical re-POST. Probed 2026-09-22.
+- [Affects R11] **Key lifetime.** The per-install `x-api-key` survives sign-out/sign-in and ~7 h idle. Probed 2026-09-22.
 
-- [Affects R8, R10] What does the server do with a six-entry document? Until known, the daemon never adds when the wall holds five.
-- [Affects R14] Is an interrupted `POST` recoverable by re-reading? Until known, automatic removal stays disabled.
-- [Affects R11] How long does the per-user key pair live, and does it survive sign-out?
+### Open — does not block implementation
+
+- [Affects R11] Where the app derives its per-install API key. Copying it once from the capture is sufficient because it does not expire.
 
 ---
 
@@ -147,5 +149,4 @@ Flighty already contains current and upcoming flights for the owner's Flighty Fr
 
 Planned in `docs/plans/2026-09-21-001-feat-flighty-flightwall-sync-plan.md`. Calendar intake and
 parsing (U1–U3) are done and verified against the live calendar. The FlightWall contract is
-captured (U4, 2026-09-22); the client (U5) is unblocked, with two gate rows still open that only
-affect removal and capacity handling in U6.
+captured and probed (U4, 2026-09-22) and the capability gate is closed. The client (U5) is next.

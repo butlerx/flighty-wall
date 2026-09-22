@@ -1,7 +1,7 @@
 # FlightWall contract discovery
 
-**Status: partially captured 2026-09-22. Contract known; U5 may start with a reduced design.
-Sequences 9, 12, 13, 14 are still open — see §8.**
+**Status: captured 2026-09-22. Contract known and probed. Capability gate closed; U5 and U6
+may start. One item remains open (§8): where the app derives its per-user API key.**
 
 This document is the U4 deliverable. It records what the vendor documents publicly, the
 protocol for capturing the rest safely, what an authorized capture from the owner's own
@@ -22,7 +22,7 @@ Read 2026-09-22. None of it was sufficient to write a client; the capture in §4
 | --- | --- | --- |
 | Individual flights are tracked by "flight number, callsign, or tail number" | theflightwall.com FAQ | Confirmed by capture: the wall stores a `flight_number` string exactly as typed (`EI61`, `BA5`). No zero-padding, no space. Matches U3's designator directly. |
 | The wall is controlled by a mobile app through a cloud account: "all connected users can view and control it from any network" | theflightwall.com FAQ | Confirmed: control is one cloud API, `api.theflightwall.com`. No local interface. |
-| "Both the Mini and WideScreen display up to 5 flights at a time" | theflightwall.com FAQ | Confirmed in the app: the Add field disappears at 5. Server-side behaviour at 6 is untested (§8). |
+| "Both the Mini and WideScreen display up to 5 flights at a time" | theflightwall.com FAQ | Client-side only: the app hides Add at 5, but the server stored 10 when asked (§4.5). The daemon enforces five. |
 | No public API, webhook, Home Assistant integration, or developer documentation is offered | theflightwall.com FAQ | Capture was the only route. |
 | `AxisNimble/TheFlightWall_OSS` is a DIY ESP32 build with no companion app and no local HTTP API | github.com/AxisNimble/TheFlightWall_OSS | Does not share a contract with the commercial Mini. Not used. |
 
@@ -32,10 +32,13 @@ Read 2026-09-22. None of it was sufficient to write a client; the capture in §4
    screen says: *"Tracked flights will show regardless of area settings."* Both live in one
    configuration document. **There is no mode to lease or restore. R9 is not applicable and
    U6 drops the mode-lease design.**
-2. **What happens after a tracked flight lands?** Each entry shows *"Will auto-remove"* in the
-   app, and there is a *tracking history* list (grew from 1 to 3 entries during the capture
-   as test flights were added). Whether auto-remove is a client-side or server-side action,
-   and what it does to the document, is untested (§8, sequence 13).
+2. **What happens after a tracked flight lands? The server removes it.** `EI61` (DUB→SFO,
+   departed 12:00 the day of the capture) was in `tracked_flights` at 11:15 and gone by 17:58
+   with the app closed the whole time and no client POST. "Will auto-remove" is a server-side
+   behaviour. **The daemon may find its own entries gone without having removed them; that
+   is normal, not drift.** The *tracking history* list is client-only: AsyncStorage key
+   `fw_tracked_flight_history`, `[{flight_number, lastAddedAt}]`, five most recent. It is
+   not in the API.
 3. **How is a manually added flight distinguished from an API-added one? It isn't.** A
    tracked flight is `{flight_number, created_at, show_distance_travelled, show_metrics}`.
    No actor, source, or ID. **Ownership must be daemon-side, by `flight_number`.**
@@ -107,12 +110,12 @@ to show the QR code, scan it, and proxy the phone. Not needed so far.
 | 6 | Manual vs API-added | **done** — indistinguishable (§1 Q3) |
 | 7 | Remove exactly one flight | **done** — `POST` the document with that entry omitted; `['EI61']` echoed |
 | 8 | Remove an already-gone flight | **not needed** — with whole-document writes the daemon GETs, finds nothing to remove, and does not POST |
-| 9 | Fill to capacity, then add a sixth | **open** — reached 5 in the app (Add field disappears) but the Save did not fire before teardown. Server behaviour at 6 untested |
+| 9 | Fill to capacity, then add a sixth | **done** — the server accepts 6 and 10 entries and echoes them back. **The cap is client-side only.** The daemon must enforce five itself |
 | 10 | Reschedule or replace | **not applicable** — entries have no schedule field; a reschedule is remove + add by `flight_number` |
 | 11 | Switch mode and back | **not applicable** — no mode exists |
-| 12 | Interrupt a mutation mid-flight | **open** |
-| 13 | Let a tracked flight go active, then land | **open** — "Will auto-remove" and tracking history observed in the UI only |
-| 14 | Idle until the token expires, then act | **open** — no expiry observed in ~20 minutes; key lifetime unknown |
+| 12 | Interrupt a mutation mid-flight | **done** — full body sent then socket closed before response: **write applied**. Half the body sent then closed: **write not applied**, document intact. Re-POST of the same content is a clean recovery either way |
+| 13 | Let a tracked flight go active, then land | **done** — `EI61` was removed server-side after departure with no client involved (§1 Q2) |
+| 14 | Idle until the token expires, then act | **done** — the per-user `x-api-key` still worked ~7 h later and **after a sign-out/sign-in cycle in the app**. It is per-install, not per-session |
 
 ---
 
@@ -142,11 +145,28 @@ User-agent observed: `TheFlightWall/1 CFNetwork/3860.700.1 Darwin/25.6.0`.
 | Plus sync poll | `GET` | `/plus/sync` | `x-api-key` (user key) | none | `{status: "none"}` | Polled every ~30 s by the app. Not needed. |
 
 Two distinct `x-api-key` values were observed: a 29-character key on `/feature-flags/app`
-and `/messages/app` (an app-level key baked into the bundle) and a 43-character key on
-`/configuration` and `/plus/sync` (per-user). `x-user-id` is a 29-character opaque string
-prefixed `fw_ios_`, so it is minted per install, not per account. The daemon needs the
-per-user key and the user id from the owner's signed-in app; see §8 for how those are
-obtained without a second capture.
+and `/messages/app` (an app-level key) and a 43-character key on `/configuration` and
+`/plus/sync` (per-install). **The 43-character key is the only credential.** Probed
+2026-09-22 (read-only unless noted):
+
+| Request | Result |
+| --- | --- |
+| correct key, correct `x-user-id` | `200`, document |
+| correct key, **wrong** `x-user-id` | `200`, the same document |
+| correct key, **no** `x-user-id` | `200`, the same document |
+| correct key, wrong `x-user-id` **and** wrong body `userId`, POST | `200`, **write applied** |
+| wrong key | `401 {"success": false, "errors": [{"code": 1102, "message": "Invalid API key"}]}` |
+| no key | `401 {"success": false, "errors": [{"code": 1101, "message": "Missing API key"}]}` |
+| correct key, **no `user-agent`** | `403` Cloudflare error 1010 `browser_signature_banned`, `retryable: false` |
+
+So `x-user-id` and body `userId` are decorative — the daemon must still send them (the app
+does) but they authorize nothing. The key survives sign-out and sign-in, so it is bound to
+the install, not the session. **Cloudflare blocks requests without the app's `user-agent`;
+the daemon must send `TheFlightWall/1 CFNetwork/3860.700.1 Darwin/25.6.0` or an equally
+app-shaped string.**
+
+`x-user-id` (`fw_ios_` + 22 chars) is stored in the app's AsyncStorage as `fw_user_id`. The
+43-character key is **not** in AsyncStorage, NSUserDefaults, or the login keychain (§8).
 
 #### 4.2.1 The configuration document
 
@@ -176,9 +196,9 @@ daemon must send these back byte-for-byte unchanged**; a POST replaces the whole
 | --- | --- |
 | Identifier for a tracked flight | `flight_number` string. Nothing else. |
 | Is that identifier stable across reads? | Yes — it is the value the user typed. |
-| Revision, ETag, or version field | `version` is in the document and was **2 before and after two successful writes**. The POST response `meta.version` was `1` both times. Neither is a concurrency check: **writes are last-writer-wins on the whole document.** No `ETag`, no `If-Match`. |
+| Revision, ETag, or version field | `version` is **decorative**. Probed: POST with `version: 1`, `version: 99`, and no `version` key all returned `200` and applied; the server stores whatever `version` it is sent (GET returned `99` after the `99` write) and defaults to `2` when absent. `meta.version` in POST responses is always `1`. No `ETag`, no `If-Match`. **Writes are unconditional last-writer-wins on the whole document.** |
 | Actor or source field | None. |
-| Active-status field | None in the document. The UI's "Will auto-remove" and tracking history are not in `/configuration`; source unknown (§8). |
+| Active-status field | None. The server removes landed flights from `tracked_flights` on its own (§1 Q2); the daemon observes the removal on its next read. |
 | Mode provenance | Not applicable — no mode. |
 
 ### 4.4 Pagination and completeness
@@ -195,13 +215,21 @@ daemon must send these back byte-for-byte unchanged**; a POST replaces the whole
 | --- | --- |
 | Documented cap | 5 flights (vendor FAQ, §1) |
 | Client behaviour at 5 | The Add field is removed from the screen once 5 entries are staged. |
-| Server behaviour when POSTing 6 | **untested** (§8). |
-| Does the wall ever evict an existing entry? | Not observed. Under last-writer-wins the only eviction risk is the daemon itself POSTing a stale document. |
+| Server behaviour when POSTing 6 | **Accepted.** 6 and 10 entries were stored and echoed back unchanged. **There is no server-side cap.** What the wall displays with more than five is unknown and must not be relied on; the daemon enforces five itself. |
+| Does the wall ever evict an existing entry? | Only landed flights, server-side (§1 Q2). Otherwise the only eviction path is a client POSTing a shorter list. |
 
 ### 4.6 Errors observed
 
-None. Every request returned `200`. Error shapes for a bad key, a stale `version`, or six
-entries are all untested (§8).
+| Condition | Status | Body shape | How the daemon must treat it |
+| --- | --- | --- | --- |
+| Wrong `x-api-key` | `401` | `{"success": false, "errors": [{"code": 1102, "message": "Invalid API key"}]}` | Credential error; stop, do not retry, report without the key value |
+| Missing `x-api-key` | `401` | same shape, `code: 1101, "Missing API key"` | Configuration error |
+| Missing / non-app `user-agent` | `403` | Cloudflare error 1010, `error_name: browser_signature_banned`, `retryable: false` | Fatal misconfiguration; never retry |
+| Stale or absurd `version` | `200` | normal document | Not an error — `version` is decorative |
+| Six or more `tracked_flights` | `200` | normal document | Not an error server-side; the daemon must never send more than five |
+| Interrupted POST, full body delivered | connection error client-side | — | **The write may have applied.** Re-read and compare; do not blindly retry |
+| Interrupted POST, partial body | connection error client-side | — | Write not applied; document intact. Re-read and compare |
+| Rate limit | not observed | — | ~40 requests in 10 minutes and a burst of ~15 in 30 s drew no `429` |
 
 ### 4.7 Contract fingerprint
 
@@ -249,36 +277,38 @@ design has one race the original did not (§8, sequence 12).
 | 3 | At least two simultaneous tracked flights | **pass** — two observed, five supported |
 | 4 | Conditional remove that cannot delete the wrong entry | **pass (reduced)** — there is no conditional write. Safe remove is: fresh `GET` → drop only `flight_number`s in the daemon's own journal → `POST` everything else unchanged. The GET→POST window is a last-writer-wins race with the app; see §8 |
 | 5 | Manual entries distinguishable, or safely inferable from owned records | **pass (reduced)** — not distinguishable remotely. The journal of `flight_number`s the daemon added is the only ownership record. A `flight_number` present on the wall before the daemon first saw it is manual and never removed |
-| 6 | Recoverable state after an uncertain mutation | **open** — sequence 12. Because POST is idempotent on content, re-reading and re-planning should recover, but this is untested |
-| 7 | Defined behaviour at capacity, no eviction of non-owned entries | **open** — sequence 9. Client-side cap confirmed; server response to 6 entries untested |
+| 6 | Recoverable state after an uncertain mutation | **pass** — sequence 12. A full-body interruption applied the write; a partial-body interruption did not; in both cases a fresh GET showed a valid document and a content-identical re-POST converged. Recovery is read-compare-replan, never blind retry |
+| 7 | Defined behaviour at capacity, no eviction of non-owned entries | **pass (reduced)** — sequence 9. The server has no cap; it stored 10. Nothing is evicted server-side except landed flights. The five-entry limit is therefore the daemon's responsibility, enforced before every POST |
 | 8 | Reschedule semantics mappable onto the U3 key | **pass** — the wall has no schedule; a reschedule within a day is a no-op, across days is remove + add |
 | 9 | Mode read and set, restorable | **not applicable** — no mode exists. R9 is withdrawn |
 | 10 | No committed artifact contains a token, device secret, CA key, location, or account id | **pass** — §6; `userId` rule added and tested after the first sanitizer pass leaked it |
 
-**Gate verdict: U5 may start.** Rows 6 and 7 stay open and are cheap to close (§8). U6 must
-not enable automatic removal until row 6 is closed, and must not add a sixth flight until row
-7 is.
+**Gate verdict: closed. U5 and U6 may start with no behaviour disabled.** The contract is
+weaker than the original gate wanted (no conditional writes, no server cap, no ownership
+signal) but every weakness has a daemon-side answer: read-modify-write with the owner's
+settings passed through untouched, a self-enforced cap of five, and a journal as the only
+ownership record.
 
 ---
 
-## 8. Still to capture
+## 8. Still open
 
-Each is a few minutes with the proxy up. In priority order:
+One item, and it does not block U5:
 
-1. **Sequence 9 — server at capacity.** Stage `BA1 BA2 BA3 BA4`, Save (5 entries), then POST
-   a 6-entry document from the shell using the captured headers. Record status and body.
-   Then remove the four test flights. Closes gate row 7.
-2. **Sequence 12 — interrupted write.** POST a document, kill the connection before the
-   response, GET, compare. Closes gate row 6.
-3. **Stale `version`.** POST with `version: 1` and with `version: 99`. If both return `200`
-   and take effect, `version` is decorative and U5 must treat every write as unconditional.
-4. **Sequence 13 — post-landing.** Leave `EI61` tracked until it lands. Diff `/configuration`
-   before and after, and find what backs the tracking-history list (it was not in any
-   captured request; probably local).
-5. **Sequence 14 — key lifetime.** Re-run `GET /configuration` with the captured key pair
-   after 24 h and after a sign-out. If it still works after sign-out, the key is per-install
-   and the daemon can keep it; if not, the daemon needs the sign-in flow and this document
-   needs a §4.2 row for it.
-6. **Obtaining the key pair for the daemon.** The values live in the app's container:
-   `~/Library/Containers/com.axisnimble.theflightwall/Data`. Find the store (likely
-   AsyncStorage or Keychain) and document the extraction step; do not commit the values.
+**Where does the app get the 43-character per-user `x-api-key`?** It is not in AsyncStorage
+(`fw_user_id` is there; the key is not), not in NSUserDefaults, and not in the login keychain.
+`main.jsbundle` is Hermes bytecode (magic `c61fbc03`), so the derivation is not readable as
+text; the bundle does reference `expo-crypto`, `sha256`, and `getRandomBytes`, and an
+`/authenticatedeviceSetup`-adjacent path, so the key is probably minted during device setup
+and held in the iOS data-protection keychain that `security` cannot enumerate. Two ways to
+close this, in order of preference:
+
+1. **Copy it once from a capture** — the daemon's credential file is the key plus the user
+   id, both already in `captures/flightwall.flow`. This is what U5 will document as the
+   setup step. It survives sign-out, so it does not need refreshing.
+2. **Recover the derivation** — decompile the Hermes bundle (`hermes-dec` or `hbc-decompiler`)
+   and read the setup flow. Only worth it if the key ever stops working.
+
+Everything else from the original list is done and recorded in §3, §4.2, §4.3, §4.5, §4.6.
+The wall was returned to `tracked_flights = []` after the probes; the owner's `EI61` had
+already been removed by the server on landing before the probes began.
