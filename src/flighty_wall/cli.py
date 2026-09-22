@@ -19,6 +19,9 @@ from .models import SnapshotAuthority
 GatewayFactory = Callable[[Path], CalendarGateway]
 Clock = Callable[[], datetime]
 
+MAX_INSPECTION_WINDOW_DAYS = 365
+"""Inspection reads are diagnostic only, so they may look wider than the daemon window."""
+
 
 def run(
     argv: Sequence[str] | None = None,
@@ -36,6 +39,8 @@ def run(
             config_path=arguments.config,
             output_path=arguments.output,
             sensitive_terms=tuple(arguments.redact_term),
+            lookahead_days=arguments.lookahead_days,
+            lookback_days=arguments.lookback_days,
             gateway_factory=gateway_factory,
             now=now,
         )
@@ -66,7 +71,34 @@ def _parser() -> argparse.ArgumentParser:
         default=[],
         help="name or other literal text to replace in the fixture; repeat as needed",
     )
+    inspect.add_argument(
+        "--lookahead-days",
+        type=_inspection_window,
+        default=None,
+        help=(
+            f"read this many days ahead instead of service.lookahead_days "
+            f"(0-{MAX_INSPECTION_WINDOW_DAYS})"
+        ),
+    )
+    inspect.add_argument(
+        "--lookback-days",
+        type=_inspection_window,
+        default=0,
+        help=f"also read this many days of past events (0-{MAX_INSPECTION_WINDOW_DAYS})",
+    )
     return parser
+
+
+def _inspection_window(raw: str) -> int:
+    try:
+        days = int(raw)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected an integer, got {raw!r}") from None
+    if not 0 <= days <= MAX_INSPECTION_WINDOW_DAYS:
+        raise argparse.ArgumentTypeError(
+            f"must be between 0 and {MAX_INSPECTION_WINDOW_DAYS} days, got {days}"
+        )
+    return days
 
 
 def _inspect_calendar(
@@ -74,12 +106,19 @@ def _inspect_calendar(
     config_path: Path,
     output_path: Path,
     sensitive_terms: tuple[str, ...],
+    lookahead_days: int | None,
+    lookback_days: int,
     gateway_factory: GatewayFactory,
     now: Clock,
 ) -> int:
     try:
         config = load_config(config_path)
-        reader = _reader(config, gateway_factory)
+        reader = _reader(
+            config,
+            gateway_factory,
+            lookahead_days=lookahead_days,
+            lookback_days=lookback_days,
+        )
     except ConfigError as error:
         print(f"configuration error: {error}", file=sys.stderr)
         return 2
@@ -102,11 +141,18 @@ def _inspect_calendar(
     return 0
 
 
-def _reader(config: AppConfig, gateway_factory: GatewayFactory) -> CalendarReader:
+def _reader(
+    config: AppConfig,
+    gateway_factory: GatewayFactory,
+    *,
+    lookahead_days: int | None = None,
+    lookback_days: int = 0,
+) -> CalendarReader:
     return CalendarReader(
         gateway=gateway_factory(config.google_credentials_path),
         calendar_id=config.calendar_id,
-        lookahead_days=config.lookahead_days,
+        lookahead_days=config.lookahead_days if lookahead_days is None else lookahead_days,
+        lookback_days=lookback_days,
         limits=CalendarLimits(
             max_pages=config.max_pages,
             max_events=config.max_events,

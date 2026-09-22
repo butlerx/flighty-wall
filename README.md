@@ -77,10 +77,13 @@ Google documents this access model in [Share calendars](https://developers.googl
    .venv/bin/flighty-wall inspect-calendar \
      --config config.toml \
      --output tests/fixtures/google_calendar/friend-flight.json \
+     --lookahead-days 60 --lookback-days 3 \
      --redact-term "Friend Name"
    ```
 
-5. Open the generated fixture and verify it contains no names, emails, booking codes, seat numbers, private URLs, or raw Google event IDs before committing it.
+   `--lookahead-days` and `--lookback-days` widen the read window for this command only, up to 365 days each, so a capture can reach flights outside the daemon's `service.lookahead_days`. If the command reports `wrote 0 sanitized event(s)`, the read succeeded and the window simply held no flights — widen it rather than assuming a setup problem.
+
+5. Open the generated fixture and verify it contains no names, emails, booking codes, seat numbers, private URLs, Flighty deeplinks, event UUIDs, or raw Google event IDs before committing it.
 
 The fixture is written with mode `0600`. `config.toml`, credential files, runtime databases, and raw captures are excluded by `.gitignore`.
 

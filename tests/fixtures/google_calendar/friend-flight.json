@@ -1,0 +1,70 @@
+{
+  "authority": "authoritative",
+  "captured_at": "2026-09-22T08:11:38.828222Z",
+  "events": [
+    {
+      "created": "2026-09-21T08:22:18.000Z",
+      "creator": {
+        "email": "<redacted-email>"
+      },
+      "description": "Vueling\u00a08721\nDublin to Barcelona\n\u2197 9:55 IST\n\u2198 13:35 GMT+2\nFlight time 2 hrs, 40 min\n\nOpen in Flighty <redacted-url>\n\nSynced by Flighty\nwww.flighty.app",
+      "end": {
+        "dateTime": "2026-09-21T12:35:00+01:00",
+        "timeZone": "Europe/Dublin"
+      },
+      "eventType": "default",
+      "id": "event-b8cdee8f30dc",
+      "kind": "calendar#event",
+      "location": "Dublin",
+      "organizer": {
+        "displayName": "flightly",
+        "email": "<redacted-email>",
+        "self": true
+      },
+      "reminders": {
+        "useDefault": true
+      },
+      "sequence": 1,
+      "start": {
+        "dateTime": "2026-09-21T09:55:00+01:00",
+        "timeZone": "Europe/Dublin"
+      },
+      "status": "confirmed",
+      "summary": "<redacted-name>: \u2708 DUB\u200b\u2192\u200bBCN \u2022 VY\u00a08721",
+      "transparency": "transparent",
+      "updated": "2026-09-21T09:08:57.162Z"
+    },
+    {
+      "created": "2026-09-21T08:06:34.000Z",
+      "creator": {
+        "email": "<redacted-email>"
+      },
+      "description": "British Airways\u00a05\nLondon to Tokyo\n\u2197 12:40 GMT+1\n\u2198 10:25 GMT+9\nFlight time 13 hrs, 45 min\n\nOpen in Flighty <redacted-url>\n\nSynced by Flighty\nwww.flighty.app",
+      "end": {
+        "dateTime": "2026-10-25T01:25:00+01:00",
+        "timeZone": "Europe/London"
+      },
+      "eventType": "default",
+      "id": "event-b0e167ea965c",
+      "kind": "calendar#event",
+      "location": "London Heathrow",
+      "organizer": {
+        "displayName": "flightly",
+        "email": "<redacted-email>",
+        "self": true
+      },
+      "reminders": {
+        "useDefault": true
+      },
+      "sequence": 14,
+      "start": {
+        "dateTime": "2026-10-24T12:40:00+01:00",
+        "timeZone": "Europe/London"
+      },
+      "status": "confirmed",
+      "summary": "<redacted-name>: \u2708 LHR\u200b\u2192\u200bHND \u2022 BA\u00a05",
+      "transparency": "transparent",
+      "updated": "2026-09-22T07:33:05.510Z"
+    }
+  ]
+}

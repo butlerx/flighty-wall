@@ -297,7 +297,7 @@ flowchart TB
 
 ---
 
-- [ ] U2. **Add Google authorization and authoritative calendar snapshots**
+- [x] U2. **Add Google authorization and authoritative calendar snapshots**
 
 **Goal:** Read every Flighty-exported event in the configured window from the dedicated Google Calendar without granting write access.
 
@@ -341,6 +341,12 @@ flowchart TB
 - The inspection path can identify the dedicated calendar and produce a sanitized Flighty event fixture.
 - Live read access uses the service account and documented read-only scope against the explicitly shared calendar ID.
 - No calendar failure or resource-limit breach can be represented as an authoritative empty calendar.
+
+**Verified 2026-09-22 against the live dedicated calendar:** an authoritative snapshot of two
+real Friends' flights was read through the service account and written to
+`tests/fixtures/google_calendar/friend-flight.json`. The live capture also found and fixed
+two sanitizer leaks (Flighty `flighty://` deeplinks and `iCalUID`), and showed the export uses
+`U+00A0` and `U+200B` inside `summary`, which U3 must normalize.
 
 ---
 

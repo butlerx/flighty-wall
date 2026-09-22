@@ -9,6 +9,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import pytest as pytest_module
+
 from flighty_wall.calendar import CalendarGateway
 from flighty_wall.cli import run
 
@@ -16,6 +18,7 @@ from flighty_wall.cli import run
 class FixtureGateway:
     def __init__(self, page: Mapping[str, Any] | Exception) -> None:
         self.page = page
+        self.calls: list[dict[str, object]] = []
 
     def list_events_page(
         self,
@@ -25,7 +28,8 @@ class FixtureGateway:
         time_max: datetime,
         page_token: str | None,
     ) -> Mapping[str, Any]:
-        del calendar_id, time_min, time_max, page_token
+        del calendar_id, page_token
+        self.calls.append({"time_min": time_min, "time_max": time_max})
         if isinstance(self.page, Exception):
             raise self.page
         return self.page
@@ -110,6 +114,55 @@ def test_inspect_calendar_failure_does_not_write_fixture(tmp_path: Path) -> None
     )
 
     assert exit_code == 2
+    assert not output_path.exists()
+
+
+def test_inspect_calendar_window_flags_widen_the_read(tmp_path: Path) -> None:
+    config_path = write_config(tmp_path)
+    output_path = tmp_path / "fixture.json"
+    gateway = FixtureGateway({"items": []})
+
+    exit_code = run(
+        [
+            "inspect-calendar",
+            "--config",
+            str(config_path),
+            "--output",
+            str(output_path),
+            "--lookahead-days",
+            "60",
+            "--lookback-days",
+            "3",
+        ],
+        gateway_factory=lambda _: gateway,
+        now=lambda: datetime(2026, 9, 21, 12, 0, tzinfo=UTC),
+    )
+
+    assert exit_code == 0
+    assert gateway.calls[0]["time_min"] == datetime(2026, 9, 18, 12, 0, tzinfo=UTC)
+    assert gateway.calls[0]["time_max"] == datetime(2026, 11, 20, 12, 0, tzinfo=UTC)
+
+
+def test_inspect_calendar_rejects_window_outside_inspection_bounds(tmp_path: Path) -> None:
+    config_path = write_config(tmp_path)
+    output_path = tmp_path / "fixture.json"
+
+    with pytest_module.raises(SystemExit) as excinfo:
+        run(
+            [
+                "inspect-calendar",
+                "--config",
+                str(config_path),
+                "--output",
+                str(output_path),
+                "--lookahead-days",
+                "400",
+            ],
+            gateway_factory=lambda _: FixtureGateway({"items": []}),
+            now=lambda: datetime(2026, 9, 21, 12, 0, tzinfo=UTC),
+        )
+
+    assert excinfo.value.code == 2
     assert not output_path.exists()
 
 

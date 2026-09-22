@@ -84,10 +84,14 @@ class CalendarReader:
         calendar_id: str,
         lookahead_days: int,
         limits: CalendarLimits,
+        lookback_days: int = 0,
     ) -> None:
+        if lookback_days < 0:
+            raise ValueError("lookback_days must not be negative")
         self._gateway = gateway
         self._calendar_id = calendar_id
         self._lookahead_days = lookahead_days
+        self._lookback_days = lookback_days
         self._limits = limits
 
     def read_snapshot(self, now: datetime) -> Snapshot:
@@ -95,6 +99,7 @@ class CalendarReader:
             raise ValueError("snapshot time must include a timezone")
 
         observed_at = now.astimezone(UTC)
+        time_min = observed_at - timedelta(days=self._lookback_days)
         time_max = observed_at + timedelta(days=self._lookahead_days)
         page_token: str | None = None
         page_count = 0
@@ -110,7 +115,7 @@ class CalendarReader:
             try:
                 page = self._gateway.list_events_page(
                     calendar_id=self._calendar_id,
-                    time_min=observed_at,
+                    time_min=time_min,
                     time_max=time_max,
                     page_token=page_token,
                 )
@@ -261,11 +266,17 @@ _DROPPED_FIXTURE_KEYS = {
     "attachments",
     "attendees",
     "conferenceData",
+    "etag",
     "hangoutLink",
     "htmlLink",
+    "iCalUID",
 }
 _EMAIL = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.IGNORECASE)
-_URL = re.compile(r"https?://\S+", re.IGNORECASE)
+_URL = re.compile(r"[A-Z][A-Z0-9+.-]*://\S+", re.IGNORECASE)
+_UUID = re.compile(
+    r"\b[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\b",
+    re.IGNORECASE,
+)
 _BOOKING = re.compile(
     r"(?im)\b(confirmation|reservation|booking)(?:\s+(?:code|number))?\s*[:#-]?\s*[A-Z0-9-]+"
 )
@@ -287,6 +298,7 @@ def _sanitize_value(value: object, sensitive_terms: Sequence[str]) -> object:
     if isinstance(value, str):
         redacted = _EMAIL.sub("<redacted-email>", value)
         redacted = _URL.sub("<redacted-url>", redacted)
+        redacted = _UUID.sub("<redacted-uuid>", redacted)
         redacted = _BOOKING.sub(r"\1: <redacted>", redacted)
         redacted = _SEAT.sub("Seat: <redacted>", redacted)
         for term in sensitive_terms:

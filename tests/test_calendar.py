@@ -72,9 +72,30 @@ def reader(gateway: FakeGateway, **limit_overrides: int) -> CalendarReader:
     return CalendarReader(
         gateway=gateway,
         calendar_id="friends@example.invalid",
-        lookahead_days=7,
+        lookahead_days=limit_overrides.get("lookahead_days", 7),
+        lookback_days=limit_overrides.get("lookback_days", 0),
         limits=limits,
     )
+
+
+def test_reader_window_defaults_to_now_forward() -> None:
+    gateway = FakeGateway({None: {"items": []}})
+    now = datetime(2026, 9, 21, 12, 0, tzinfo=UTC)
+
+    reader(gateway).read_snapshot(now)
+
+    assert gateway.calls[0]["time_min"] == now
+    assert gateway.calls[0]["time_max"] == datetime(2026, 9, 28, 12, 0, tzinfo=UTC)
+
+
+def test_reader_lookback_extends_window_into_the_past() -> None:
+    gateway = FakeGateway({None: {"items": []}})
+    now = datetime(2026, 9, 21, 12, 0, tzinfo=UTC)
+
+    reader(gateway, lookahead_days=60, lookback_days=3).read_snapshot(now)
+
+    assert gateway.calls[0]["time_min"] == datetime(2026, 9, 18, 12, 0, tzinfo=UTC)
+    assert gateway.calls[0]["time_max"] == datetime(2026, 11, 20, 12, 0, tzinfo=UTC)
 
 
 def test_reader_consumes_every_page_before_marking_snapshot_authoritative() -> None:
@@ -191,3 +212,27 @@ def test_sanitizer_preserves_structure_and_flight_number_but_removes_pii() -> No
     assert "@example.com" not in rendered
     assert "private-link" not in rendered
     assert "attendees" not in sanitized
+
+
+def test_sanitizer_redacts_flighty_deeplinks_and_calendar_uids() -> None:
+    event = timed_event("private-google-id")
+    event.update(
+        {
+            "description": (
+                "Ryanair 8721\nDublin to Barcelona\n"
+                "View in Flighty flighty://flight/651cbaa3-2a8b-4580-b88c-c7d2a0164f9e"
+            ),
+            "iCalUID": "9BDF5975-05CA-4689-B3BD-48501DC930D4",
+            "etag": '"3579963474324702"',
+        }
+    )
+
+    sanitized = sanitize_event_payload(event)
+    rendered = repr(sanitized)
+
+    assert "651cbaa3" not in rendered
+    assert "flighty://" not in rendered
+    assert "9BDF5975" not in rendered
+    assert "3579963474324702" not in rendered
+    assert "Ryanair 8721" in str(sanitized["description"])
+    assert "Dublin to Barcelona" in str(sanitized["description"])
