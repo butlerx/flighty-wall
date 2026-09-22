@@ -1,11 +1,32 @@
 ---
 title: "chore: Adopt click and pydantic at the CLI and config boundaries"
 type: chore
-status: active
+status: done
 date: 2026-09-22
 ---
 
 # chore: Adopt click and pydantic at the CLI and config boundaries
+
+## Outcome
+
+Both phases landed. Phase A is `097d5a0`, Phase B is `3e3122c`; `mise run check`
+passes on each (102 tests, 94% coverage). Three deviations from the plan as
+written:
+
+- The config limits model is named `Limits`, not `CalendarLimits`. `cli.py`
+  imports `calendar.CalendarLimits` as well, and two identically named types in
+  one module is the kind of import collision that gets resolved wrongly later.
+- Paths need a `BeforeValidator`, not an `AfterValidator`. Under `strict=True`
+  pydantic refuses to coerce a `str` into a `Path` at all, so `~` expansion has
+  to run before validation rather than after it. Anything that is neither a
+  string nor a path is passed through untouched, so a stray integer is still
+  reported instead of coerced.
+- `Field` defaults are written `Field(default=120, ...)`. Pyright does not read
+  the positional form as a default and reports every defaulted field as a
+  missing constructor argument.
+
+The deferred logging change is unchanged and now belongs to U7 of the origin
+plan, which is blocked behind the U4 capture gate.
 
 ## Overview
 
@@ -28,9 +49,9 @@ Recorded so the next reader does not redo it.
 - `prek` hooks installed (`pre-commit`, `commit-msg`); `tombi`, `yamlfmt`,
   `actionlint`, `zizmor`, `ruff`, `mypy`, `pyright`, `uv-lock` all run from
   `.pre-commit-config.yaml`.
-- `mise.toml` + `mise.lock` pin `prek`, `tombi`, `uv`, `zizmor`. File tasks
-  in `.mise/tasks/`: `sync`, `hooks`, `check`, `lint`, `lint:fix`, `test`,
-  `deps`.
+- `mise.toml` + `mise.lock` pin `prek`, `tombi`, `uv`, `zizmor`. Tasks are
+  defined in `mise.toml`: `sync`, `hooks`, `check`, `lint`, `lint:fix`, `test`,
+  `deps`, plus hidden `ci:lint` and `ci:test`.
 - `.github/workflows/ci.yml`: `lint` job via `jdx/mise-action`, `test`
   matrix 3.11 to 3.14 using `UV_PYTHON` to override the pin.
 - `pyproject.toml`: coverage `fail_under = 80` and `omit = ["*/__main__.py"]`;
