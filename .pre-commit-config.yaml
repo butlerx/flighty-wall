@@ -1,0 +1,84 @@
+update:
+  cooldown_days: 7
+  freeze: true
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # frozen: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-toml
+      - id: check-yaml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: 91ab4bf57e58b32adf1a122681f6ebe164d081c8 # frozen: v4.4.0
+    hooks:
+      - id: conventional-pre-commit
+        stages:
+          - commit-msg
+
+  - repo: https://github.com/tombi-toml/tombi-pre-commit
+    rev: 385dc2ab8dbefe539be12c8e6bc3450e1276e87f # frozen: v1.2.7
+    hooks:
+      - id: tombi-format
+      - id: tombi-lint
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: 914e7df21a07ef503a81201c76d2b11c789d3fca # frozen: v1.7.12
+    hooks:
+      - id: actionlint
+
+  - repo: https://github.com/google/yamlfmt
+    rev: 21ca5323a9c87ee37a434e0ca908efc0a89daa07 # frozen: v0.21.0
+    hooks:
+      - id: yamlfmt
+
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: 451b56af716f9f0d0c2b816503a3fd0cf8b036fa # frozen: v1.29.0
+    hooks:
+      - id: zizmor
+        pass_filenames: false
+        args:
+          - '--no-progress' # https://github.com/zizmorcore/zizmor/issues/582
+          - '.github'
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: 39d9ac5938dadb73df0564a45f163e25ff9fa6e2 # frozen: v0.16.1
+    hooks:
+      - id: ruff-check
+        args:
+          - --fix
+      - id: ruff-format
+
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: e805244dd1bc999f2b4d716f5fa21ee87189b084 # frozen: 0.12.2
+    hooks:
+      - id: uv-lock
+
+  - repo: local
+    hooks:
+      # Runs mypy/pyright from uv.lock rather than a second, unpinned copy in a
+      # hook env — otherwise `uv run mypy` and this hook can disagree on the
+      # same code. `uv run` also resolves the project environment itself, so
+      # there is no hard-coded .venv path to go stale.
+      - id: mypy
+        name: mypy
+        language: system
+        entry: uv run --frozen mypy src tests
+        pass_filenames: false
+        # Type errors are not local to the changed file, so the whole project is
+        # always checked; this filter only decides whether to check at all.
+        types_or:
+          - python
+          - pyi
+      - id: pyright
+        name: pyright
+        language: system
+        entry: uv run --frozen pyright
+        pass_filenames: false
+        types_or:
+          - python
+          - pyi
