@@ -433,6 +433,16 @@ Decisions worth carrying into U6:
 - Treat U4 as a hard capability gate. U5/U6 may proceed only if the contract proves complete authoritative reads, stable IDs, simultaneous flights, safe conditional delete/mode semantics, recoverable mutation uncertainty, capacity behavior, and reschedule semantics. Any missing requirement-critical capability stops implementation and returns for a user scope decision.
 - If certificate pinning or the app architecture prevents safe capture, inspect the owned APK for contract metadata or request vendor API access. Do not invent endpoints.
 
+**Progress note (2026-09-22): tooling and documentation done, capture outstanding — U4 remains open and U5/U6 stay blocked.**
+
+- Research confirmed there is no documented interface that would avoid the capture. The vendor FAQ offers no API, webhooks, or Home Assistant integration; control is via the mobile app through a cloud account. `AxisNimble/TheFlightWall_OSS` is a DIY ESP32 build with no companion app, no local API, and area tracking only, so it cannot stand in for the commercial Mini's contract.
+- One requirement-critical constraint is now known without a capture: the vendor states the Mini displays **up to 5 flights at a time**. Reconciliation must treat being at capacity as a normal condition.
+- Research surfaced a design-relevant open question the capture must settle: this plan assumes area and flight tracking modes are mutually exclusive, but "up to 5 flights at a time" suggests they may share one display list. If they coexist, the U6 mode lease is unnecessary.
+- Built `sanitize-capture` (`src/flighty_wall/capture.py`) rather than sanitizing a HAR by hand, because the verification criterion forbids any retained artifact holding a usable token, device secret, personal location, or account identifier, and hand-editing a multi-megabyte HAR cannot be trusted to meet it. Header values and query values are dropped wholesale rather than scrubbed: an unrecognized authorization scheme is exactly the case a pattern would miss.
+- Extracted the calendar sanitizer into `src/flighty_wall/redaction.py` so both fixture writers share one rule set and a pattern added for one source protects the other. Added key-based redaction alongside the patterns, because a short opaque secret (`"token": "abc123"`) defeats every length-based rule and only the key name identifies it.
+- `docs/flightwall-api-discovery.md` and `tests/fixtures/flightwall/README.md` exist with the capture protocol, the vendor baseline and its sources, the fourteen controlled sequences, blank findings tables, the provenance table, and the ten-row capability gate. Nine gate rows read "not captured → blocks U5/U6"; only the artifact-safety row passes, and it must be re-checked once real fixtures exist.
+- `tests/fixtures/flightwall/` holds no fixtures. The six files this unit lists were deliberately not written: guessing them would let U5 build a client against a contract that does not exist, and the first real request would fail against the physical wall rather than in a test.
+
 **Patterns to follow:**
 - Contract-first reverse engineering against a device and account owned by the operator.
 - Fixture provenance notes that state capture date, app version, and fields removed.

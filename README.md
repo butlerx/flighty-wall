@@ -87,15 +87,47 @@ Google documents this access model in [Share calendars](https://developers.googl
 
 The fixture is written with mode `0600`. `config.toml`, credential files, runtime databases, and raw captures are excluded by `.gitignore`.
 
-## Development checks
+## 6. Capture the FlightWall contract
+
+**This step is required before anything can talk to the wall, and only you can do it.** The
+FlightWall backend has no public API, so its contract has to be observed from the FlightWall
+app on your own device, against your own account and wall.
+
+Read `docs/flightwall-api-discovery.md` first: it has the safety rules, the fourteen
+sequences to record, and the capability checklist the capture has to satisfy. Budget about
+90 minutes.
+
+Once you have a HAR export from the proxy:
 
 ```bash
-.venv/bin/ruff check src tests
-.venv/bin/ruff format --check src tests
-.venv/bin/pyright --project pyrightconfig.json
-.venv/bin/mypy src tests
-.venv/bin/python -m pytest
+.venv/bin/flighty-wall sanitize-capture \
+  --input captures/flightwall.har \
+  --output-dir tests/fixtures/flightwall \
+  --host api.example-flightwall-host \
+  --redact-term "Friend Name"
 ```
+
+Run it once without `--host` to list every host the capture touched, then re-run with the
+FlightWall hosts only. The sanitizer drops all header and query values, discards body fields
+whose keys are never safe, and scrubs tokens, coordinates, and identifiers by pattern — but
+it cannot recognise a person's name, so pass one `--redact-term` per name.
+
+Read every generated file before committing, then delete the raw HAR and remove the
+interception CA from the capture device. `tests/fixtures/flightwall/README.md` lists what
+must never appear in a committed fixture.
+
+## Development checks
+
+Tools (`uv`, `prek`, `tombi`, `zizmor`) are pinned in `mise.toml` and `mise.lock`; Python is pinned in `.python-version`.
+
+```bash
+mise install    # tools
+mise run sync   # .venv with every dependency group
+mise run hooks  # git hooks CI also runs
+mise run check  # lint + types + tests + deps, same as CI
+```
+
+`mise tasks` lists the individual tasks (`lint`, `lint:fix`, `test`, `deps`).
 
 ## Plan
 
