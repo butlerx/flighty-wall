@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-#MISE description="Auto-fix what the hooks can fix"
-#MISE depends=["sync"]
-#MISE quiet=true
-
-set -euo pipefail
-
-prek run --all-files ruff-check ruff-format tombi-format yamlfmt || true

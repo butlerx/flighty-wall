@@ -1,6 +1,3 @@
-# Run `mise tasks` to list tasks, `mise run <task>` to run one.
-# Python itself is pinned in .python-version and managed by uv, not mise.
-
 [tools]
 prek   = "0.4"
 tombi  = "1.2"
@@ -10,3 +7,55 @@ zizmor = "latest"
 [settings]
 experimental = true
 lockfile     = true
+
+[tasks.sync]
+description = "Create the virtualenv and install every dependency group"
+quiet       = true
+sources     = ["pyproject.toml", "uv.lock", ".python-version"]
+outputs     = [".venv/pyvenv.cfg"]
+run         = "uv sync --frozen"
+
+[tasks.hooks]
+description = "Install the git hooks that CI also runs"
+quiet       = true
+run         = "prek install --hook-type pre-commit --hook-type commit-msg"
+
+[tasks.lint]
+description = "ruff, mypy, pyright, tombi, yamlfmt, actionlint, zizmor"
+depends     = ["sync"]
+quiet       = true
+run         = "prek run --all-files"
+
+[tasks."lint:fix"]
+description = "Auto-fix what the hooks can fix"
+depends     = ["sync"]
+quiet       = true
+run         = "prek run --all-files ruff-check ruff-format tombi-format yamlfmt || true"
+
+[tasks.test]
+description = "Run the test suite with coverage"
+alias       = "t"
+depends     = ["sync"]
+quiet       = true
+run         = "uv run --frozen pytest --cov"
+
+[tasks.deps]
+description = "Check for missing, unused, or misplaced dependencies"
+depends     = ["sync"]
+quiet       = true
+run         = "uv run --frozen deptry src"
+
+[tasks.check]
+description = "Everything CI runs: lint, types, tests, deps"
+depends     = ["lint", "test", "deps"]
+quiet       = true
+
+[tasks."ci:lint"]
+depends = ["lint", "deps"]
+hide    = true
+quiet   = true
+
+[tasks."ci:test"]
+depends = ["test"]
+hide    = true
+quiet   = true

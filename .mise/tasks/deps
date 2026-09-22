@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-#MISE description="Check for missing, unused, or misplaced dependencies"
-#MISE depends=["sync"]
-#MISE quiet=true
-
-set -euo pipefail
-
-uv run --frozen deptry src

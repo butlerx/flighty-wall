@@ -39,10 +39,9 @@ jobs:
           experimental: true
           cache: true
 
-      # lint = prek (ruff, mypy, pyright, tombi, yamlfmt, actionlint, zizmor);
-      # deps = deptry. Both defined in .mise/tasks.
-      - run: mise run lint
-      - run: mise run deps
+      # ci:lint = prek (ruff, mypy, pyright, tombi, yamlfmt, actionlint, zizmor)
+      # + deptry. Hidden task in mise.toml; locally use `mise run check`.
+      - run: mise run ci:lint
 
   test:
     runs-on: ubuntu-latest
@@ -68,4 +67,4 @@ jobs:
           experimental: true
           cache: true
 
-      - run: mise run test
+      - run: mise run ci:test

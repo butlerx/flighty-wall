@@ -1,9 +1,0 @@
-#!/usr/bin/env bash
-#MISE description="Create the virtualenv and install every dependency group"
-#MISE quiet=true
-#MISE sources=["pyproject.toml", "uv.lock", ".python-version"]
-#MISE outputs=[".venv/pyvenv.cfg"]
-
-set -euo pipefail
-
-uv sync --frozen

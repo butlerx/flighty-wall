@@ -7,6 +7,7 @@ Sync Flighty Friends flights from a dedicated Google Calendar to a FlightWall Mi
 ## Requirements
 
 - Python 3.11 or newer
+- [mise](https://mise.jdx.dev/) for development; it installs the pinned tools
 - Flighty with Calendar Export
 - A dedicated Google Calendar
 - A Google Cloud project with the Calendar API enabled
@@ -54,11 +55,11 @@ Google documents this access model in [Share calendars](https://developers.googl
 
 ## 5. Configure and inspect
 
-1. Install the project:
+1. Install the tools and the project:
 
    ```bash
-   python3 -m venv .venv
-   .venv/bin/python -m pip install -e '.[dev]'
+   mise install    # uv, prek, tombi, zizmor
+   mise run sync   # .venv with every dependency group
    ```
 
 2. Create local configuration:
@@ -74,7 +75,7 @@ Google documents this access model in [Share calendars](https://developers.googl
 4. Capture a sanitized fixture, repeating `--redact-term` for every Friend name that could appear:
 
    ```bash
-   .venv/bin/flighty-wall inspect-calendar \
+   uv run flighty-wall inspect-calendar \
      --config config.toml \
      --output tests/fixtures/google_calendar/friend-flight.json \
      --lookahead-days 60 --lookback-days 3 \
@@ -100,7 +101,7 @@ sequences to record, and the capability checklist the capture has to satisfy. Bu
 Once you have a HAR export from the proxy:
 
 ```bash
-.venv/bin/flighty-wall sanitize-capture \
+uv run flighty-wall sanitize-capture \
   --input captures/flightwall.har \
   --output-dir tests/fixtures/flightwall \
   --host api.example-flightwall-host \
@@ -118,16 +119,14 @@ must never appear in a committed fixture.
 
 ## Development checks
 
-Tools (`uv`, `prek`, `tombi`, `zizmor`) are pinned in `mise.toml` and `mise.lock`; Python is pinned in `.python-version`.
+Tools (`uv`, `prek`, `tombi`, `zizmor`) and tasks are defined in `mise.toml` (tools pinned in `mise.lock`); Python is pinned in `.python-version`.
 
 ```bash
-mise install    # tools
-mise run sync   # .venv with every dependency group
 mise run hooks  # git hooks CI also runs
 mise run check  # lint + types + tests + deps, same as CI
 ```
 
-`mise tasks` lists the individual tasks (`lint`, `lint:fix`, `test`, `deps`).
+`mise tasks` lists the individual tasks (`lint`, `lint:fix`, `test`, `deps`). `mise run test -- -k name` and `mise run lint -- ruff-check` pass extra arguments through.
 
 ## Plan
 
