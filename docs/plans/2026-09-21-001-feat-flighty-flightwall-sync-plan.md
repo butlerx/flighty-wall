@@ -3,42 +3,62 @@ title: "feat: Sync Flighty Friends to FlightWall Mini"
 type: feat
 status: active
 date: 2026-09-21
+updated: 2026-09-22
 origin: docs/brainstorms/2026-09-21-flighty-friends-flightwall-sync-requirements.md
 deepened: 2026-09-21
 ---
 
 # feat: Sync Flighty Friends to FlightWall Mini
 
+## Status
+
+| Unit | State | Evidence |
+| --- | --- | --- |
+| U1 Foundation and state | done | `b9ad5c7`; config moved to pydantic in `3e3122c` |
+| U2 Google Calendar intake | done, verified live | `97f9a63`, `be1a3b0`, `b792263` |
+| U3 Flighty event parser | done, verified live | `b87df2c` |
+| U4 FlightWall contract capture | **blocked on the owner** | tooling and protocol in `d92d56c`, `388078c`; no fixtures captured |
+| U5 FlightWall client | not started | gated by U4 |
+| U6 Reconciliation engine | not started | gated by U5 |
+| U7 Daemon and operations | not started | gated by U6 |
+
+`mise run check` is green: 102 tests, 94% coverage, all hooks passing.
+
+**The single remaining blocker is U4.** Nothing else in this plan can proceed until the owner
+runs the capture in `docs/flightwall-api-discovery.md` and the capability gate there passes.
+
+---
+
 ## Overview
 
 Build a small Python service that reads Flighty Friends events from a dedicated Google Calendar, normalizes those events into flights, and safely reconciles them with the owner's FlightWall Mini. The service preserves manually tracked flights, temporarily switches the wall from Area Tracking Mode to Flight Tracking Mode while a managed Friend flight is active, and restores the prior area mode afterward.
 
-The repository is greenfield. The highest-risk dependency is the commercial FlightWall app's undocumented backend contract. Implementation therefore starts with a bounded, authorized Android capture and records a sanitized contract before any production FlightWall client is written.
+The calendar half is complete: a calendar-isolated service account reads the dedicated calendar, the parser turns real Flighty exports into stable flight records, and both fixture writers sanitize real data before it is committed. The FlightWall half has not started, because the commercial FlightWall app's backend contract is undocumented and must be observed from the owner's own device before any client is written.
 
 ---
 
 ## Problem Frame
 
-Flighty already knows the owner's Friends' upcoming flights, but FlightWall requires those flights to be added separately. Manual copying is repetitive and easy to miss. Flighty's supported Calendar Export can bridge the data to Google Calendar; the Linux service must then automate FlightWall without scraping Flighty, exposing credentials, deleting manual wall entries, or fighting the owner's display controls (see origin: `docs/brainstorms/2026-09-21-flighty-friends-flightwall-sync-requirements.md`).
+Flighty already knows the owner's Friends' upcoming flights, but FlightWall requires those flights to be added separately. Manual copying is repetitive and easy to miss. Flighty's supported Calendar Export bridges the data to Google Calendar; the Linux service must then automate FlightWall without scraping Flighty, exposing credentials, deleting manual wall entries, or fighting the owner's display controls (see origin: `docs/brainstorms/2026-09-21-flighty-friends-flightwall-sync-requirements.md`).
 
 ---
 
 ## Requirements Trace
 
-- R1. Read Flighty Friends events from one dedicated Google Calendar using read-only authorization.
-- R2. Accept only events that identify a flight unambiguously with flight number and departure context.
-- R3. Reconcile additions, updates, cancellations, and deletions without duplicates.
-- R4. Include every Friend exported to the dedicated calendar in v1.
-- R5. Make unchanged sync runs idempotent.
-- R6. Make polling and lookahead configurable; default to a two-minute poll and seven-day lookahead.
-- R7. Persist explicit ownership of daemon-created FlightWall entries.
-- R8. Never modify or remove manually created FlightWall entries.
-- R9. When FlightWall exposes authoritative activity and mode provenance, temporarily use Flight Tracking Mode for active managed flights, then restore Area Tracking Mode only while the daemon still owns that transition.
-- R10. Keep all overlapping active Friend flights available.
-- R11. Run unattended under systemd with restart behavior and actionable logs.
-- R12. Keep Google and FlightWall credentials out of source control and logs.
-- R13. Provide an authoritative dry run when both sources are available and a clearly provisional, non-mutating local-intent report when FlightWall is unavailable.
-- R14. Treat incomplete or failed upstream reads as non-authoritative and perform zero FlightWall mutations from them.
+- R1. Read Flighty Friends events from one dedicated Google Calendar using read-only authorization. — **met (U2)**
+- R2. Accept only events that identify a flight unambiguously with flight number and departure context. — **met (U3)**
+- R3. Reconcile additions, updates, cancellations, and deletions without duplicates. — parser side met (U3); wall side pending (U6)
+- R4. Include every Friend exported to the dedicated calendar in v1. — **met (U2, U3)**
+- R5. Make unchanged sync runs idempotent. — pending (U6)
+- R6. Make polling and lookahead configurable; default to a two-minute poll and seven-day lookahead. — **met (U1)**; poll loop pending (U7)
+- R7. Persist explicit ownership of daemon-created FlightWall entries. — pending (U5, U6)
+- R8. Never modify or remove manually created FlightWall entries. — pending (U4 gate, U6)
+- R9. When FlightWall exposes authoritative activity and mode provenance, temporarily use Flight Tracking Mode for active managed flights, then restore Area Tracking Mode only while the daemon still owns that transition. — pending (U4 gate, U6); may become not applicable, see Open Questions
+- R10. Keep all overlapping active Friend flights available. — parser side met (U3); wall side pending (U4 gate, U6)
+- R11. Run unattended under systemd with restart behavior and actionable logs. — pending (U7)
+- R12. Keep Google and FlightWall credentials out of source control and logs. — Google side met (U1, U2); FlightWall side pending (U5)
+- R13. Provide an authoritative dry run when both sources are available and a clearly provisional, non-mutating local-intent report when FlightWall is unavailable. — pending (U6, U7)
+- R14. Treat incomplete or failed upstream reads as non-authoritative and perform zero FlightWall mutations from them. — calendar side met (U2, U3); wall side pending (U5, U6)
 
 **Origin actors:** A1 (owner), A2 (Flighty Friend), A3 (Flighty), A4 (Linux sync service), A5 (FlightWall Mini)
 
@@ -63,27 +83,36 @@ Flighty already knows the owner's Friends' upcoming flights, but FlightWall requ
 - Per-Friend include/exclude rules and custom display windows.
 - Support for multiple Google calendars or multiple FlightWall devices.
 - A supported vendor integration if TheFlightWall publishes an API after v1.
+- Replacing the `isinstance` chain in `calendar.py` with a `GoogleEvent(BaseModel, extra="allow")` once the parser contract has been stable for a while.
 
 ---
 
 ## Context & Research
 
-### Relevant Code and Patterns
+### Established Code and Patterns
 
-- The repository contains only the origin requirements document, so there are no local application or test patterns to reuse.
-- Use a conventional Python `src/` package layout, dependency injection at external boundaries, and fixture-driven contract tests.
-- Keep calendar, parser, state, FlightWall transport, reconciliation, and process lifecycle as separate modules so the undocumented integration can change without rewriting the service.
+Later units must fit the conventions the first three units set:
+
+- `src/` layout with relative imports inside `src/flighty_wall/`; frozen dataclasses in `models.py` for internal values; `typing.Protocol` at every external boundary (`CalendarGateway`, `_DiscoveryModule`) so tests inject fakes without patching.
+- `config.py` is nested pydantic (`AppConfig.google/.service/.storage/.calendar_limits`) with `strict=True`, `extra="forbid"`, range bounds in `Field`, and filesystem probes (`require_private_file`, state-parent check) run after validation, outside the model. New settings go in a new nested table, not a flat key.
+- `cli.py` is a click group. Dependencies travel through `ctx.obj` as the frozen `Deps` dataclass; tests use `CliRunner().invoke(cli, [...], obj=Deps(...))`. Exit code 2 means config/usage error or a non-authoritative result, and nothing is written on exit 2.
+- `CalendarReader.read_snapshot()` returns a `Snapshot` whose `authority` is explicit. A bound breach, request failure, or partial page yields a typed reason string, never a partial event list. Reconciliation must consume `authority`, never infer it from emptiness.
+- `parser.parse_cycle()` is pure. The flight key is `DESIGNATOR:ORIGIN:UTC-departure-date`, carrying the set of contributing Google event IDs. Any Flighty-like event without an authoritative interpretation makes the whole cycle non-authoritative.
+- All redaction rules live in `redaction.py` and are shared by both fixture writers. Fixtures are written atomically at mode `0600`. JSON goes through `orjson` only; the stdlib `json` module is banned by ruff.
+- `mise run check` is the gate: prek hooks (ruff `ALL`, mypy strict, pyright strict, tombi, yamlfmt, actionlint, zizmor, yamllint) plus `pytest --cov` (floor 80%) plus `deptry`.
 
 ### Institutional Learnings
 
-- No `docs/solutions/` material or project-local engineering guidance exists in this greenfield repository.
+- A sanitizer cannot be trusted until it has processed real data. The U2 live capture found two leaks (`flighty://` deeplinks, `iCalUID`) that mocked tests had missed. The U4 sanitizer has only seen synthetic HARs; its gate row must be re-checked by hand once real fixtures exist.
+- Flighty's export carries invisible characters in `summary`: `U+00A0` between carrier and number, `U+200B` around the route arrow. Any new text handling on calendar data must normalize both first.
+- Google API success proves Google readability, not Flighty freshness. Observation time and each event's `updated` are separate fields and must stay separate in diagnostics.
 
 ### External References
 
 - Flighty officially supports exporting Friends' flights with the Friend's name and standard flight information: https://flighty.com/help/calendar-export
 - Flighty's calendar troubleshooting recommends isolated calendars to prevent duplicate import/export loops: https://flighty.com/help/troubleshoot-calendar-sync
-- FlightWall supports tracked flights by flight number, callsign, or tail number and separates Flight Tracking Mode from Area Tracking Mode: https://theflightwall.com/products/flightwall-mini-flight-tracking-led-display
-- The public FlightWall OSS project documents OpenSky and FlightAware data sources but not the commercial app backend: https://github.com/AxisNimble/TheFlightWall_OSS
+- FlightWall supports tracked flights by flight number, callsign, or tail number, separates Flight Tracking Mode from Area Tracking Mode, and displays up to five flights at a time: https://theflightwall.com/products/flightwall-mini-flight-tracking-led-display
+- The public FlightWall OSS project is a DIY ESP32 build with no companion app or local API; it does not document the commercial app backend: https://github.com/AxisNimble/TheFlightWall_OSS
 - Google documents service-account credentials for server-to-server access: https://developers.google.com/identity/protocols/oauth2/service-account
 - Google documents explicit calendar sharing and access roles: https://developers.google.com/workspace/calendar/api/concepts/sharing
 - Google documents `events.list` pagination, cancellation behavior, and time-window filters: https://developers.google.com/workspace/calendar/api/v3/reference/events/list
@@ -94,40 +123,41 @@ Flighty already knows the owner's Friends' upcoming flights, but FlightWall requ
 
 ## Key Technical Decisions
 
-- **Python 3.11+ with a `pyproject.toml`:** It is widely available on current Linux distributions and provides `tomllib`, `zoneinfo`, `sqlite3`, `dataclasses`, and mature Google/HTTP clients without a large runtime stack.
+- **Python 3.11+, `pyproject.toml`, `uv.lock`; libraries at the edges, stdlib in the middle:** `click` owns argument parsing, `pydantic` owns parsing TOML into typed config, `orjson` owns JSON. Domain values stay as frozen dataclasses; `tomllib`, `zoneinfo`, `sqlite3`, and `logging` come from the standard library.
 - **One long-running process supervised by systemd:** The process polls on a monotonic schedule; systemd owns boot startup, restart policy, filesystem permissions, and log collection.
-- **Calendar-isolated Google service account:** Share only the dedicated Flighty calendar read-only with a service account and request `calendar.readonly`. This avoids granting a personal refresh token access to every calendar in the owner's account; Google scopes themselves are not calendar-bound.
-- **Bounded full-window reads instead of Calendar sync tokens:** A two-minute poll over the next seven days is small for a dedicated calendar and naturally discovers events that enter the moving window. An event/page/byte cap prevents calendar writers from exhausting the daemon; exceeding any cap makes the cycle non-authoritative.
-- **Cycle-wide fail-closed parsing:** Any unrecognized or ambiguous event that could be a Flighty export makes the cycle non-authoritative for all wall mutations. Known unrelated events may be ignored explicitly. A sanitized real Flighty export becomes the parser's contract fixture before rules are finalized.
-- **FlightWall capability gate before contract-specific state:** The captured contract must prove complete list/mode reads, stable identifiers, simultaneous flights, authoritative activity, safe conditional deletion and mode provenance, recoverable uncertain mutations, capacity behavior, and reschedule semantics. Missing capabilities stop implementation and return for a scope decision.
-- **Isolated FlightWall adapter:** The production endpoint, authentication, headers, payloads, identifiers, and error semantics come only from the owner's authorized capture. Production requires normal TLS verification and an allowlisted hostname; capture trust never reaches the daemon.
-- **SQLite ownership journal after contract evidence:** Generic storage scaffolding lands first; remote IDs, pending operations, aggregated source references, and mode provenance are finalized only after the capability gate. Ambiguous remote entries are never adopted or deleted.
-- **Plan-then-apply reconciliation:** Authoritative calendar and wall snapshots produce the executable plan. An offline dry run emits only a clearly labeled provisional calendar-and-journal intent report, with every remote-dependent action marked unknown.
-- **Provenance-backed mode lease:** Automatic restoration requires revision, actor, timestamp, lease-token, or conditional-write evidence from FlightWall. Current-value comparison alone is insufficient; if provenance is unavailable, automatic mode control is blocked pending a user scope decision.
-- **Privacy-safe logs and state:** Log event IDs, normalized flight identifiers, action types, and error classes. Do not log credentials, reservation codes, seat numbers, full calendar descriptions, raw captures, or Friend names by default.
+- **Calendar-isolated Google service account:** Only the dedicated Flighty calendar is shared, read-only, with a service account requesting `calendar.readonly`. A personal refresh token would reach every calendar in the owner's account; Google scopes themselves are not calendar-bound.
+- **Bounded full-window reads instead of Calendar sync tokens:** A two-minute poll over the next seven days is small for a dedicated calendar. Page, event, field-length, and total-byte caps prevent a calendar writer from exhausting the daemon; exceeding any cap makes the cycle non-authoritative.
+- **Cycle-wide fail-closed parsing:** Any unrecognized or ambiguous event that could be a Flighty export makes the cycle non-authoritative for all wall mutations. The sanitized real export is the parser's contract fixture.
+- **FlightWall capability gate before contract-specific code:** The captured contract must prove complete list/mode reads, stable identifiers, simultaneous flights, authoritative activity, safe conditional deletion and mode provenance, recoverable uncertain mutations, capacity behavior, and reschedule semantics. A missing capability stops implementation and returns for a scope decision; it does not license a weaker guarantee.
+- **Capacity of five is a normal condition:** The vendor states the Mini displays up to five flights at a time. Reconciliation must plan for being at capacity without treating it as an error and without ever evicting an entry the daemon does not own.
+- **Isolated FlightWall adapter:** Endpoint, authentication, headers, payloads, identifiers, and error semantics come only from the owner's authorized capture. Production requires normal TLS verification and an allowlisted hostname; capture trust never reaches the daemon.
+- **SQLite ownership journal after contract evidence:** Generic storage scaffolding exists; remote IDs, pending operations, aggregated source references, and mode provenance are finalized only after the gate passes. Ambiguous remote entries are never adopted or deleted.
+- **Plan-then-apply reconciliation:** Authoritative calendar and wall snapshots produce the executable plan. An offline dry run emits only a clearly labeled provisional calendar-and-journal intent report.
+- **Provenance-backed mode lease, if modes are exclusive:** Automatic restoration requires revision, actor, lease-token, or conditional-write evidence from FlightWall. If the capture shows area tracking and tracked flights coexist on one display, the lease is unnecessary and R9 collapses to "add and remove flights".
+- **Privacy-safe logs and state:** Log event IDs, normalized flight identifiers, action types, and error classes. Never log credentials, reservation codes, seat numbers, full descriptions, raw captures, or Friend names by default.
 
 ---
 
 ## Open Questions
 
-### Resolved During Planning
+### Resolved
 
-- **How should Flighty data reach Linux?** Through Flighty's supported export to a dedicated Google Calendar; no Apple bridge is required after export.
-- **How should Google Calendar be read?** A dedicated service account receives read-only access to only the Flighty calendar; no personal Google refresh token is stored on Linux.
-- **What are the initial polling defaults?** Poll every two minutes and manage flights scheduled within the next seven days; both values remain configurable.
-- **How should ambiguous parsing affect safety?** Any ambiguous event that could be Flighty data makes the whole cycle non-authoritative and permits no wall mutation.
-- **How should manual FlightWall entries be protected?** Persist only daemon-created remote IDs and aggregated source references, require safe delete preconditions, and never delete an unowned or ambiguous entry.
-- **How should display mode be restored?** Only with FlightWall-provided provenance or conditional-write evidence that the daemon still owns the transition; otherwise automatic mode control does not ship.
-- **What should dry-run report during a wall outage?** A provisional local-intent report that labels all remote-dependent additions, removals, and mode actions unknown; it is not the executable action plan.
+- **How should Flighty data reach Linux?** Through Flighty's supported export to a dedicated Google Calendar. Verified live 2026-09-22.
+- **How should Google Calendar be read?** A service account with read-only sharing on only the Flighty calendar. Verified live 2026-09-22; no personal token is stored.
+- **What is the exact Flighty event shape?** Recorded in `tests/fixtures/google_calendar/README.md` from a real capture: `"<Friend>: ✈ DUB→BCN • VY 8721"` in `summary` with `U+00A0`/`U+200B`, structured `description`, `start`/`end` with explicit time zones, un-padded flight numbers.
+- **What are the polling defaults?** 120 seconds and seven days, bounded to 30–86 400 seconds and 1–30 days in `config.py`.
+- **How should ambiguous parsing affect safety?** The whole cycle becomes non-authoritative and permits no wall mutation. Implemented in U3.
+- **Is there a documented FlightWall interface that avoids the capture?** No. The vendor offers no API, webhooks, or integrations; the OSS project is a different device with no app.
 
-### Deferred to Implementation
+### Open — settled only by the U4 capture
 
-- **Exact Flighty event shape:** Capture and sanitize real exported events before finalizing summary/description parsing. The parser must remain fail-closed if the shape differs.
-- **Exact FlightWall app contract:** Capture list/add/remove/mode requests from the owner's Android app. Do not implement guessed endpoints or authentication.
-- **Capability gate result:** Prove complete pagination, stable identifiers, two simultaneous tracked flights, authoritative active status, conditional delete/mode semantics, mutation recovery, capacity behavior, and reschedule/replacement semantics. Stop and return for a scope decision if any requirement-critical capability is missing.
-- **Certificate pinning:** If the app rejects a user CA, use an owned ephemeral emulator with appropriate test trust or inspect the APK for contract metadata. If a safe authorized capture remains impossible, stop and request vendor API access rather than shipping speculative automation.
-- **Remote ownership markers:** Prefer a server-supported client tag if exposed. Otherwise require returned remote IDs plus safe conditional mutation semantics; entries that cannot be matched safely become non-destructive orphans requiring manual review.
-- **Contract drift, rate limits, and token lifetime:** Derive these from captured responses. Unknown contract fingerprints force read-only mode until recapture and fixture validation; rate limits and expiry become typed operational states.
+- **Are area tracking and flight tracking mutually exclusive?** The plan assumes yes. "Displays up to 5 flights at a time" suggests they may share one list. If they coexist, U6 drops the mode lease and R9 is not applicable.
+- **What identifier format does the wall accept?** The parser produces `VY8721`; the wall may want `VY 8721`, `VY8721`, or a callsign. Flighty does not zero-pad (`BA 5`).
+- **Does the wall distinguish manual entries from app-added ones?** If not, ownership rests entirely on the daemon's own journal of returned IDs.
+- **What are the delete and mode-write preconditions?** Conditional delete needs a stable ID and ideally a revision/ETag; mode restore needs actor or lease evidence. Absence of either blocks the related automation.
+- **What happens at capacity and after landing?** Rejection, eviction, or silent drop at six; hold, drop, or error after landing.
+- **Certificate pinning:** If the app rejects a user CA, follow §5 of the discovery document: inspect the owned APK, then ask the vendor, then return for a scope decision. Never patch TLS.
+- **Contract drift, rate limits, and token lifetime:** Derive from captured responses. Unknown fingerprints force read-only mode until recapture.
 
 ---
 
@@ -135,62 +165,54 @@ Flighty already knows the owner's Friends' upcoming flights, but FlightWall requ
 
 ```text
 .
-├── pyproject.toml
-├── README.md
-├── config.example.toml
-├── .gitignore
+├── pyproject.toml, uv.lock, mise.toml, mise.lock, .python-version
+├── .pre-commit-config.yaml, .yamlfmt.yaml, .yamllint.yaml, tombi.toml
+├── .github/workflows/ci.yml
+├── LICENSE, NOTICE, README.md, config.example.toml
 ├── docs/
-│   ├── brainstorms/
-│   │   └── 2026-09-21-flighty-friends-flightwall-sync-requirements.md
-│   ├── plans/
-│   │   └── 2026-09-21-001-feat-flighty-flightwall-sync-plan.md
-│   ├── flightwall-api-discovery.md
-│   └── setup.md
-├── src/
-│   └── flighty_wall/
-│       ├── __init__.py
-│       ├── __main__.py
-│       ├── auth.py
-│       ├── calendar.py
-│       ├── cli.py
-│       ├── config.py
-│       ├── flightwall.py
-│       ├── models.py
-│       ├── parser.py
-│       ├── reconcile.py
-│       ├── service.py
-│       └── state.py
-├── systemd/
-│   └── flighty-wall.service
+│   ├── brainstorms/2026-09-21-flighty-friends-flightwall-sync-requirements.md
+│   ├── plans/2026-09-21-001-feat-flighty-flightwall-sync-plan.md
+│   ├── plans/2026-09-22-001-chore-click-pydantic-migration-plan.md   (done)
+│   └── flightwall-api-discovery.md            (U4: findings tables empty until capture)
+├── src/flighty_wall/
+│   ├── __init__.py, __main__.py, py.typed
+│   ├── auth.py          service-account gateway
+│   ├── calendar.py      bounded authoritative reads
+│   ├── capture.py       HAR → sanitized FlightWall fixtures
+│   ├── cli.py           click group: inspect-calendar, sanitize-capture
+│   ├── config.py        pydantic AppConfig
+│   ├── models.py        frozen domain values
+│   ├── parser.py        Flighty event → Flight, fail-closed
+│   ├── redaction.py     shared redaction rules
+│   ├── state.py         SQLite bootstrap, permissions, atomic metadata
+│   ├── flightwall.py    (U5)
+│   ├── reconcile.py     (U6)
+│   └── service.py       (U7)
+├── systemd/flighty-wall.service               (U7)
 └── tests/
-    ├── fixtures/
-    │   ├── flightwall/
-    │   └── google_calendar/
-    ├── test_auth.py
-    ├── test_calendar.py
-    ├── test_cli.py
-    ├── test_config.py
-    ├── test_flightwall.py
-    ├── test_parser.py
-    ├── test_reconcile.py
-    ├── test_service.py
-    └── test_state.py
+    ├── fixtures/google_calendar/{README.md, friend-flight.json, cancelled-flight.json}
+    ├── fixtures/flightwall/README.md          (fixtures arrive with U4)
+    ├── test_auth.py, test_calendar.py, test_capture.py, test_cli.py,
+    ├── test_config.py, test_parser.py, test_redaction.py, test_state.py
+    ├── test_flightwall.py                     (U5)
+    ├── test_reconcile.py                      (U6)
+    └── test_service.py                        (U7)
 ```
 
-The tree is a scope declaration, not a requirement to preserve every filename if implementation reveals a simpler equivalent boundary.
+Setup documentation lives in `README.md`; the separately planned `docs/setup.md` was folded into it.
 
 ---
 
 ## High-Level Technical Design
 
-> *This illustrates the intended approach and is directional guidance for review, not implementation specification. The implementing agent should treat it as context, not code to reproduce.*
+> *Directional guidance for review, not implementation specification.*
 
 ```mermaid
 flowchart TB
     Flighty[Flighty Friends]
     Google[Dedicated Google Calendar]
-    Reader[Calendar Reader]
-    Parser[Fail-closed Event Parser]
+    Reader[Calendar Reader ✓]
+    Parser[Fail-closed Event Parser ✓]
     Planner[Reconciliation Planner]
     State[(SQLite Ownership Journal)]
     Client[FlightWall Adapter]
@@ -206,13 +228,13 @@ flowchart TB
     Client --> State
 ```
 
-Each poll produces one of two outcomes:
+Each poll produces one of three outcomes:
 
 1. **Authoritative snapshot:** Every bounded calendar page plus the complete FlightWall tracking list, mode state, and required provenance reads succeed and validate against the captured contract. The service may plan mutations.
-2. **Non-authoritative snapshot:** Any source read, parser authority check, bound, authentication step, contract fingerprint, or required provenance check fails. The service logs the failure and performs zero FlightWall mutations—no add, update, remove, or mode change.
-3. **Provisional offline dry run:** Calendar and journal data may still describe local intent, but every action that depends on current FlightWall state is labeled unknown and cannot be applied.
+2. **Non-authoritative snapshot:** Any source read, parser authority check, bound, authentication step, contract fingerprint, or required provenance check fails. The service logs the failure and performs zero FlightWall mutations.
+3. **Provisional offline dry run:** Calendar and journal data describe local intent, but every action that depends on current FlightWall state is labeled unknown and cannot be applied.
 
-Mode lifecycle:
+Mode lifecycle — **applies only if U4 shows the two modes are mutually exclusive**:
 
 ```mermaid
 stateDiagram-v2
@@ -230,277 +252,107 @@ stateDiagram-v2
 
 ```mermaid
 flowchart TB
-    U1[U1 Foundation and state]
-    U2[U2 Google Calendar intake]
-    U3[U3 Flighty event parser]
-    U4[U4 FlightWall contract capture]
+    U1[U1 Foundation ✓]
+    U2[U2 Calendar intake ✓]
+    U3[U3 Flighty parser ✓]
+    U4[U4 FlightWall capture — owner]
     U5[U5 FlightWall client]
     U6[U6 Reconciliation engine]
     U7[U7 Daemon and operations]
 
-    U1 --> U2
-    U1 --> U3
-    U1 --> U5
+    U1 --> U2 --> U3
     U4 --> U5
-    U2 --> U3
-    U2 --> U6
     U3 --> U6
     U5 --> U6
-    U1 --> U6
     U6 --> U7
 ```
 
-- [x] U1. **Establish package, configuration, domain models, and durable state**
+- [x] U1. **Package, configuration, domain models, durable state** — `b9ad5c7`, config rewritten with pydantic in `3e3122c`.
 
-**Goal:** Create the greenfield Python package and the safe local foundation used by every integration.
+  Landed: `pyproject.toml`, `config.example.toml`, `config.py` (nested `AppConfig`), `models.py`, `state.py` (schema-versioned SQLite with `0700`/`0600` checks including WAL/SHM, atomic metadata), `tests/test_config.py`, `tests/test_state.py`. FlightWall-specific tables were deliberately not created; they arrive in U5/U6 after the gate.
 
-**Requirements:** R5, R6, R7, R11, R12, R13, R14
+- [x] U2. **Google authorization and authoritative calendar snapshots** — `97f9a63`, `be1a3b0`, `b792263`. Verified live 2026-09-22.
 
-**Dependencies:** None
+  Landed: `auth.py`, `calendar.py`, the `inspect-calendar` command with `--lookahead-days`/`--lookback-days` (up to 365) for captures beyond the daemon window, `tests/fixtures/google_calendar/friend-flight.json` from two real Friends' flights. Carry forward: observation time and event `updated` are separate fields; a bound breach or failed page is a typed non-authoritative reason, never an empty calendar.
 
-**Files:**
-- Create: `pyproject.toml`
-- Create: `.gitignore`
-- Create: `config.example.toml`
-- Create: `src/flighty_wall/__init__.py`
-- Create: `src/flighty_wall/config.py`
-- Create: `src/flighty_wall/models.py`
-- Create: `src/flighty_wall/state.py`
-- Test: `tests/test_config.py`
-- Test: `tests/test_state.py`
+- [x] U3. **Normalize and validate Flighty calendar events** — `b87df2c`. Verified live 2026-09-22 against real, unredacted summaries: two events, two flights, zero unrecognized.
 
-**Approach:**
-- Define immutable domain values for source events, normalized flights, planned actions, and sync outcomes without guessing FlightWall-specific identifiers or provenance fields.
-- Load non-secret settings from TOML and secret file paths from deployment configuration; validate calendar ID, poll interval, lookahead, state path, snapshot bounds, and dry-run mode at startup.
-- Bootstrap SQLite with schema versioning and generic metadata only. Finalize remote ownership, pending-operation, and mode-provenance records in U5/U6 after U4 proves the contract.
-- Require daemon-owned directories to be mode `0700` and credential/state files—including SQLite WAL/SHM siblings—to be mode `0600`; updates must be atomic.
-- Make the clock and external clients injectable so tests do not depend on wall time or live services.
-
-**Execution note:** Implement state transitions test-first because crash recovery and ownership are safety-critical.
-
-**Patterns to follow:**
-- Standard Python `src/` package layout and `pyproject.toml` metadata.
-- Standard-library `dataclasses`, `tomllib`, `sqlite3`, `zoneinfo`, and structured `logging` where practical.
-
-**Test scenarios:**
-- Happy path: valid example configuration loads typed values and applies two-minute/seven-day defaults when optional values are omitted.
-- Edge case: zero/negative polling intervals, invalid time zones, or an unwritable state location fail before the service starts.
-- Happy path: the schema version and generic metadata survive closing and reopening the SQLite store.
-- Error path: an interrupted atomic metadata update leaves the prior committed state readable after restart.
-- Security: state, WAL/SHM siblings, and credential files reject broader-than-configured permissions at startup.
-- Security: serialized state and diagnostic representations do not contain configured credential values.
-
-**Verification:**
-- Package metadata installs cleanly in an isolated environment.
-- Configuration failures are explicit and do not create partial state.
-- State tests demonstrate crash-safe generic storage without prematurely encoding an unverified FlightWall contract.
+  Landed: `parser.py`, `tests/fixtures/google_calendar/cancelled-flight.json`, `tests/test_parser.py`. Decisions U6 depends on:
+  - Flight key `DESIGNATOR:ORIGIN:UTC-departure-date`: a same-day delay updates one entry; a move to another day yields a new key. Contributing event IDs attach to the key; the freshest `updated` wins on a departure-instant disagreement.
+  - A codeshare (one leg claimed by two designators at the same instant) makes the cycle non-authoritative; the export carries no codeshare data to disambiguate.
+  - The ✈ glyph is a required Flighty marker: if Flighty drops its footer, a flight fails the cycle loudly instead of vanishing from the wall.
+  - Failure reasons carry the Google event ID and never event text.
 
 ---
 
-- [x] U2. **Add Google authorization and authoritative calendar snapshots**
+- [ ] U4. **Capture and document the authorized FlightWall contract** — **owner action outstanding**
 
-**Goal:** Read every Flighty-exported event in the configured window from the dedicated Google Calendar without granting write access.
-
-**Requirements:** R1, R3, R4, R6, R12, R14; F1
-
-**Dependencies:** U1
-
-**Files:**
-- Create: `src/flighty_wall/auth.py`
-- Create: `src/flighty_wall/calendar.py`
-- Create: `tests/fixtures/google_calendar/README.md`
-- Test: `tests/test_auth.py`
-- Test: `tests/test_calendar.py`
-
-**Approach:**
-- Authenticate with a Google service account whose identity has read-only sharing on only the dedicated Flighty calendar; never store a personal-account refresh token.
-- Resolve and validate the configured calendar ID during setup rather than using `primary`; document and verify that calendar sharing remains private and limited to the owner, Flighty, and the service account.
-- On each poll, request timed events across the bounded management window, expand recurring instances, include cancelled events where useful, and consume every response page up to configured page, event, field-length, and total-byte caps.
-- Return an authoritative snapshot only after complete pagination and bounds validation succeeds. A timeout, malformed response, denied scope, credential failure, over-limit result, or partial page sequence yields an explicit failed snapshot that reconciliation cannot use for any wall mutation.
-- Record Google observation time separately from each event's `updated` value. API success proves Google readability, not that Flighty exported a recent upstream change; diagnostics must not present those as the same freshness signal.
-- Add a privacy-safe inspection path that can produce a sanitized test fixture from real Flighty-exported events without reservation codes, seats, free-form descriptions, Friend names, or credential data.
-
-**Execution note:** Start with mocked API pagination and failure tests before connecting a real Google account.
-
-**Patterns to follow:**
-- Google's official service-account and Calendar-sharing documentation with read-only scope.
-- Google `events.list` pagination semantics; do not introduce sync-token complexity in v1.
-
-**Test scenarios:**
-- Happy path: one Friend flight inside the window appears once in the completed snapshot.
-- Integration: multiple Google response pages are combined before the snapshot is marked authoritative.
-- Edge case: timed events retain their explicit source time zone and are normalized without assuming the Linux host's local zone.
-- Edge case: all-day and unrelated events remain available for parser rejection rather than crashing the reader.
-- Error path: a failure on page two returns a non-authoritative result and no partial event set is exposed for destructive reconciliation.
-- Error path: denied or revoked service-account access produces an actionable sharing/credential status without logging keys.
-- Security: too many pages/events, oversized fields, or excessive total bytes makes the snapshot non-authoritative and causes zero wall mutations.
-- Edge case: a delayed or stale event exposes separate observation and event-update timestamps without claiming Flighty's export is fresh.
-- Security: fixture generation removes Friend names, booking references, seat numbers, descriptions, and credentials while preserving structural fields needed by tests.
-
-**Verification:**
-- The inspection path can identify the dedicated calendar and produce a sanitized Flighty event fixture.
-- Live read access uses the service account and documented read-only scope against the explicitly shared calendar ID.
-- No calendar failure or resource-limit breach can be represented as an authoritative empty calendar.
-
-**Verified 2026-09-22 against the live dedicated calendar:** an authoritative snapshot of two
-real Friends' flights was read through the service account and written to
-`tests/fixtures/google_calendar/friend-flight.json`. The live capture also found and fixed
-two sanitizer leaks (Flighty `flighty://` deeplinks and `iCalUID`), and showed the export uses
-`U+00A0` and `U+200B` inside `summary`, which U3 must normalize.
-
----
-
-- [x] U3. **Normalize and validate Flighty calendar events**
-
-**Goal:** Convert known Flighty export shapes into stable flight records while rejecting ambiguous or unrelated calendar events.
-
-**Requirements:** R2, R3, R4, R5, R10; F1; AE1
-
-**Dependencies:** U1 and a sanitized fixture produced through U2
-
-**Files:**
-- Create: `src/flighty_wall/parser.py`
-- Create: `tests/fixtures/google_calendar/friend-flight.json`
-- Create: `tests/fixtures/google_calendar/cancelled-flight.json`
-- Test: `tests/test_parser.py`
-
-**Approach:**
-- Base parsing rules on the sanitized real export rather than assumed title or description formatting.
-- Normalize carrier code and flight number, departure airport, scheduled departure instant in UTC, source event ID, status, and optional non-sensitive display context.
-- Use a stable physical-flight key based on flight identity and scheduled departure context, and associate it with the set of contributing Google event IDs so two Friends or codeshares do not create competing ownership records.
-- Treat cancellation, reschedule, codeshare, duplicate event, malformed flight number, missing departure context, all-day event, and non-flight event as explicit outcomes rather than generic parse failures.
-- Fail the entire cycle closed when an unknown or ambiguous event could be a Flighty export: log a redacted reason and permit zero wall mutation until every candidate event has an authoritative interpretation.
-
-**Execution note:** Add characterization tests from the sanitized fixture before implementing parsing rules.
-
-**Patterns to follow:**
-- Pure transformation functions with no API or database access.
-- Table-driven fixtures for format variants and boundary cases.
-
-**Test scenarios:**
-- Covers F1 / AE1. A valid exported Friend event becomes one normalized flight with stable identity across a gate or duration update.
-- Edge case: two Friends' events for the same physical flight aggregate into one desired remote entry with two source references; removing one event retains the remote entry.
-- Edge case: marketing and operating codeshares either aggregate deterministically from captured data or make the cycle non-authoritative; they never create two guessed flights.
-- Edge case: departure and arrival in different time zones normalize correctly across daylight-saving transitions.
-- Error path: a missing flight number, missing departure context, all-day event, or unrelated event produces no desired wall entry.
-- Error path: an unknown Flighty-like format makes the whole cycle non-authoritative and invokes no wall mutation.
-- Happy path: a cancelled event removes one source reference and makes the remote entry removable only after no authoritative source references remain.
-
-**Verification:**
-- Every captured Flighty event fixture has an explicit expected parse result.
-- Parser output is deterministic and contains no reservation, seat, or Friend-name data unless explicitly enabled later.
-
-**Verified 2026-09-22.** `parse_cycle` turns the sanitized live fixture into two flights (`VY8721 DUB-BCN`,
-`BA5 LHR-HND`) and the cancelled fixture into an explicit `cancelled` outcome. A live read of the real
-calendar, whose summaries still carry real Friend names, parsed both events with zero unrecognized
-events, so the optional traveller label in the summary regex holds against production data.
-
-Decisions worth carrying into U6:
-- The flight key is `DESIGNATOR:ORIGIN:UTC-departure-date`, so a same-day delay updates one entry while a
-  move to another day yields a new key. Contributing event IDs are attached to the key, and the freshest
-  `updated` timestamp wins when two events disagree on the departure instant.
-- A codeshare (one leg claimed by two designators at the same instant) makes the cycle non-authoritative
-  rather than creating two guessed flights, because the calendar export carries no codeshare data.
-- The plane glyph stays a Flighty marker on purpose: if Flighty drops its description footer, a Friend's
-  flight still fails the cycle loudly instead of disappearing from the wall silently.
-- Failure reasons carry the Google event ID but never event text, so logs stay free of names and routes.
-
----
-
-- [ ] U4. **Capture and document the authorized FlightWall contract**
-
-**Goal:** Establish evidence for the exact commercial app requests needed to list, add, remove, and display tracked flights before coding against the undocumented backend.
+**Goal:** Observe the exact commercial-app requests needed to list, add, remove, and display tracked flights, and prove the capability gate, before any code targets the backend.
 
 **Requirements:** R7, R8, R9, R10, R12, R14; F2, F3
 
-**Dependencies:** None; this can run in parallel with U1–U3
+**Dependencies:** None on code. Requires the owner's Android device or an owned emulator, the owner's FlightWall account and wall, and about 90 minutes.
 
-**Files:**
-- Create: `docs/flightwall-api-discovery.md`
-- Create: `tests/fixtures/flightwall/README.md`
-- Create: `tests/fixtures/flightwall/list-empty.json`
-- Create: `tests/fixtures/flightwall/list-with-manual-and-tracked.json`
-- Create: `tests/fixtures/flightwall/add-success.json`
-- Create: `tests/fixtures/flightwall/remove-success.json`
-- Create: `tests/fixtures/flightwall/mode-area.json`
-- Create: `tests/fixtures/flightwall/mode-tracking.json`
+**Already done (`d92d56c`, `388078c`):**
+- `sanitize-capture` (`capture.py`) turns a HAR export into one fixture per request: every header and query value dropped, body values redacted by key name and by pattern via `redaction.py`, oversized or non-JSON bodies reduced to size and MIME type, `--host` allowlist with host discovery when nothing matches.
+- `docs/flightwall-api-discovery.md`: vendor baseline (§1), safety rules and setup/teardown (§2), fourteen controlled sequences (§3), empty findings tables (§4), pinning fallback (§5), provenance table (§6), ten-row capability gate (§7).
+- `tests/fixtures/flightwall/README.md`: what the sanitizer removes, what may never be committed, target file names.
+- Confirmed without a capture: there is no public API; the OSS project is a different device; the Mini displays up to five flights at a time.
 
-**Approach:**
-- Use an ephemeral owned Android emulator where possible and a localhost- or LAN-restricted HTTPS inspection proxy. Disable or protect raw-flow persistence, delete raw captures immediately after fixture sanitization, rotate captured credentials, and remove the interception CA afterward.
-- Record controlled sequences for authentication/connect, complete paginated list and mode reads, two simultaneous future test flights, add/read/remove, reschedule or replacement, capacity behavior, uncertain mutation recovery, active-status transitions, mode changes, and restoration.
-- Document method, host allowlist, path shape, HTTP verb, required headers by name, request/response field semantics, stable identifiers, revisions/ETags/actors, activity and mode provenance, pagination, capacity, token expiry, contract fingerprint, and observed errors.
-- Sanitize fixtures before committing: remove credential values, device identifiers, names, precise home location, and unrelated account data. Preserve only the minimum contract shape.
-- Treat U4 as a hard capability gate. U5/U6 may proceed only if the contract proves complete authoritative reads, stable IDs, simultaneous flights, safe conditional delete/mode semantics, recoverable mutation uncertainty, capacity behavior, and reschedule semantics. Any missing requirement-critical capability stops implementation and returns for a user scope decision.
-- If certificate pinning or the app architecture prevents safe capture, inspect the owned APK for contract metadata or request vendor API access. Do not invent endpoints.
+**Remaining — owner:**
+1. Follow §2 setup in the discovery document. Record the app version and platform immediately.
+2. Record the fourteen sequences in §3 separately. Sequences 9 (capacity) and 12 (interrupted mutation) are the likeliest gate failures; do not skip them.
+3. Export the HAR to `captures/` and run `sanitize-capture` once without `--host` to list hosts, then again with the FlightWall hosts and one `--redact-term` per Friend name and device label.
+4. Read every produced fixture by hand. Delete the raw HAR and proxy flows, remove the CA from the device, sign out, rotate the password if a login was captured.
+5. Fill §4, §6, and §7 of the discovery document from observed requests only. Rename fixtures to the operation they prove and commit them.
 
-**Progress note (2026-09-22): tooling and documentation done, capture outstanding — U4 remains open and U5/U6 stay blocked.**
-
-- Research confirmed there is no documented interface that would avoid the capture. The vendor FAQ offers no API, webhooks, or Home Assistant integration; control is via the mobile app through a cloud account. `AxisNimble/TheFlightWall_OSS` is a DIY ESP32 build with no companion app, no local API, and area tracking only, so it cannot stand in for the commercial Mini's contract.
-- One requirement-critical constraint is now known without a capture: the vendor states the Mini displays **up to 5 flights at a time**. Reconciliation must treat being at capacity as a normal condition.
-- Research surfaced a design-relevant open question the capture must settle: this plan assumes area and flight tracking modes are mutually exclusive, but "up to 5 flights at a time" suggests they may share one display list. If they coexist, the U6 mode lease is unnecessary.
-- Built `sanitize-capture` (`src/flighty_wall/capture.py`) rather than sanitizing a HAR by hand, because the verification criterion forbids any retained artifact holding a usable token, device secret, personal location, or account identifier, and hand-editing a multi-megabyte HAR cannot be trusted to meet it. Header values and query values are dropped wholesale rather than scrubbed: an unrecognized authorization scheme is exactly the case a pattern would miss.
-- Extracted the calendar sanitizer into `src/flighty_wall/redaction.py` so both fixture writers share one rule set and a pattern added for one source protects the other. Added key-based redaction alongside the patterns, because a short opaque secret (`"token": "abc123"`) defeats every length-based rule and only the key name identifies it.
-- `docs/flightwall-api-discovery.md` and `tests/fixtures/flightwall/README.md` exist with the capture protocol, the vendor baseline and its sources, the fourteen controlled sequences, blank findings tables, the provenance table, and the ten-row capability gate. Nine gate rows read "not captured → blocks U5/U6"; only the artifact-safety row passes, and it must be re-checked once real fixtures exist.
-- `tests/fixtures/flightwall/` holds no fixtures. The six files this unit lists were deliberately not written: guessing them would let U5 build a client against a contract that does not exist, and the first real request would fail against the physical wall rather than in a test.
-
-**Patterns to follow:**
-- Contract-first reverse engineering against a device and account owned by the operator.
-- Fixture provenance notes that state capture date, app version, and fields removed.
-
-**Test scenarios:**
-- Test expectation: none — this unit captures and documents an external contract rather than changing executable behavior. Fixture validation begins in U5.
+**Gate outcome:** U5 starts only when all ten §7 rows read **pass**. Any failure returns to the owner for a scope decision (manual-entry-only workflow, or keep U1–U3 as a Flighty normalisation tool); it does not license a weaker manual-entry or mode-safety guarantee.
 
 **Verification:**
-- A sanitized, replay-safe fixture exists for each required operation.
-- The discovery document proves complete pagination, stable remote identity, safe mutation preconditions, two-flight support, active and mode provenance, capacity behavior, and recovery after an uncertain mutation.
-- Each requirement-critical capability has a pass/fail result; any failure explicitly blocks U5/U6 rather than silently reducing guarantees.
-- No committed or retained raw artifact contains a usable token, device secret, interception CA key, personal location, or account identifier.
+- A sanitized, replay-safe fixture exists for each required operation, each with a provenance row.
+- §4 answers the four design questions in §1: mode exclusivity, post-landing behaviour, manual/app distinction, identifier stability.
+- No committed or retained artifact contains a usable token, device secret, CA key, personal location, or account identifier — re-checked by hand, not by the sanitizer's tests.
 
 ---
 
 - [ ] U5. **Implement the defensive FlightWall client**
 
-**Goal:** Encapsulate the captured app contract behind a validated client that exposes only the operations reconciliation needs.
+**Goal:** Encapsulate the captured contract behind a validated client that exposes only the operations reconciliation needs.
 
 **Requirements:** R5, R7, R8, R9, R10, R12, R14; F2, F3
 
-**Dependencies:** U1, U4
+**Dependencies:** U4 gate passed.
 
 **Files:**
 - Create: `src/flighty_wall/flightwall.py`
-- Modify: `src/flighty_wall/state.py`
-- Test: `tests/test_flightwall.py`
-- Test: `tests/test_state.py`
-- Modify: `tests/fixtures/flightwall/*.json` only if contract fixture normalization needs correction
+- Modify: `src/flighty_wall/config.py` — add a `[flightwall]` table: allowlisted host, credential file path, request timeout; probed with `require_private_file` like the Google key
+- Modify: `config.example.toml`
+- Modify: `src/flighty_wall/state.py` — remote ownership, aggregated source references, pending operations, mode provenance (only fields U4 proved)
+- Modify: `src/flighty_wall/cli.py` — add `probe-wall`, a read-only authoritative snapshot command
+- Modify: `pyproject.toml` — add `httpx`
+- Test: `tests/test_flightwall.py`, `tests/test_state.py`, `tests/test_cli.py`
 
 **Approach:**
-- Implement an authoritative WallSnapshot that requires complete pagination plus successful mode, activity, provenance, and contract-fingerprint validation before exposing data to reconciliation.
-- Implement typed add, conditional remove-by-exact-ID/revision, and conditional mode operations only for capabilities proven by U4.
-- Finalize SQLite tables for remote ownership, aggregated source references, pending operations, and mode provenance from the captured contract.
-- Keep base URL, device/account identifiers, and credentials outside code. Require HTTPS, normal certificate validation, an allowlisted captured hostname, and no credential forwarding across redirects; never permit the capture CA or disabled verification in production.
-- Use bounded request timeouts and conservative retries only for safe reads and demonstrably idempotent mutations. Never blindly retry a mutation whose outcome is unknown.
-- Surface distinct errors for authentication, authorization, rate limits, transient transport failures, and contract/schema drift. An unknown fingerprint forces read-only mode until fixtures are recaptured and validated.
-
-**Execution note:** Implement against sanitized captured fixtures before making live mutations.
-
-**Patterns to follow:**
-- One HTTP transport boundary using `httpx` with injected transport for deterministic tests.
-- Strict response validation and redacted exception messages.
+- `WallSnapshot` is authoritative only after complete pagination plus successful mode, activity, provenance, and contract-fingerprint validation — the same shape as `calendar.Snapshot`.
+- Typed add, conditional remove-by-exact-ID/revision, and conditional mode operations exist only for capabilities U4 proved. If modes coexist, there is no mode operation.
+- Designator formatting (`VY8721` vs `VY 8721` vs callsign) is a single explicit mapping from the U3 designator, taken from §4.2.
+- HTTPS with normal certificate validation, allowlisted captured hostname, no credential forwarding across redirects. Capture CA and `verify=False` are rejected at config load.
+- Bounded timeouts; retries only for reads and demonstrably idempotent mutations. A mutation with unknown outcome is surfaced as unknown, never retried blindly.
+- Distinct errors for authentication, authorization, rate limit, transport, and contract drift. An unknown fingerprint forces read-only mode.
 
 **Test scenarios:**
-- Happy path: list responses distinguish manual remote entries from IDs already recorded as daemon-owned in local state without mutating either.
-- Happy path: add, remove-by-exact-ID, and mode-change responses produce typed outcomes matching captured fixtures.
-- Edge case: duplicate-add response or existing equivalent flight is represented explicitly and does not grant ownership of a pre-existing manual entry.
-- Error path: timeout after an uncertain mutation yields an unknown outcome for reconciliation recovery, not an automatic retry.
-- Error path: 401/403 produces a reauthentication error; 429 or server failure produces a retryable status with bounded delay metadata.
-- Error path: failure on page two, failed mode/activity retrieval, or missing provenance makes WallSnapshot non-authoritative and permits zero mutating client calls.
-- Error path: missing or renamed required response fields or an unknown fingerprint forces read-only contract-drift handling before any mutation.
-- Security: cross-host redirects, disabled TLS validation, and capture-CA configuration are rejected; request/response logging redacts authorization, device credentials, location, and personal fields.
+- List responses distinguish manual entries from daemon-owned IDs without mutating either.
+- Add, remove-by-exact-ID, and mode responses produce typed outcomes matching fixtures.
+- Duplicate-add or existing-equivalent response is explicit and never grants ownership of a manual entry.
+- Timeout after a mutation yields unknown outcome; 401/403 yields reauthentication; 429/5xx yields retryable with delay metadata.
+- Failure on page two, failed mode/activity read, or missing provenance makes the snapshot non-authoritative and permits zero mutating calls.
+- Missing/renamed required fields or unknown fingerprint forces read-only handling.
+- Cross-host redirects, disabled TLS validation, and capture-CA configuration are rejected; logging redacts authorization, device credentials, location, and personal fields.
 
 **Verification:**
-- All captured fixtures pass contract tests without live network access, including incomplete pagination and drift fixtures.
-- A live read-only probe produces one authoritative WallSnapshot without changing the device.
-- Mutating probes require an explicit operator flag and proven conditional semantics, then report exact before/after state.
+- All captured fixtures pass without network access, including incomplete-pagination and drift fixtures.
+- `probe-wall` produces one authoritative snapshot against the real wall without changing it.
+- Mutating probes require an explicit operator flag and report exact before/after state.
 
 ---
 
@@ -508,50 +360,44 @@ Decisions worth carrying into U6:
 
 **Goal:** Compute and apply idempotent calendar-to-wall changes while preserving manual entries and user control.
 
-**Requirements:** R3, R4, R5, R6, R7, R8, R9, R10, R13, R14; F1, F2, F3; AE1, AE2, AE3, AE4
+**Requirements:** R3, R4, R5, R6, R7, R8, R9, R10, R13, R14; F1, F2, F3; AE1–AE4
 
-**Dependencies:** U1, U2, U3, U5
+**Dependencies:** U5
 
 **Files:**
 - Create: `src/flighty_wall/reconcile.py`
 - Test: `tests/test_reconcile.py`
 
 **Approach:**
-- Convert one authoritative calendar snapshot plus current owned state and one authoritative WallSnapshot into a deterministic ordered action plan. Any non-authoritative input permits zero wall mutation.
-- Aggregate all source event IDs for each physical flight. Add a missing flight once, retain it while any source reference remains, and remove only an exact owned ID using the captured conditional precondition.
-- Persist pending mutation intent before network calls and resolve it from a fresh authoritative WallSnapshot after success, timeout, or restart.
-- If an equivalent manual flight already exists, suppress a duplicate but do not adopt ownership; surface that decision in dry-run/log output.
-- Use FlightWall's authoritative per-flight active status for mode decisions and keep overlapping active flights in one desired set. Do not add configurable local activity windows in v1.
-- Acquire a mode lease only when the daemon changes Area Tracking Mode to Flight Tracking Mode and receives provenance for that transition. Restore Area only by conditional mutation against that provenance; any unverifiable or manual change releases the lease.
-- Authoritative dry-run and normal mode share the same planner. When FlightWall is unavailable, dry-run emits a separate provisional local-intent report with every remote-dependent action marked unknown.
-
-**Execution note:** Implement the planner as pure logic test-first, then add the mutation executor and crash-recovery paths.
-
-**Patterns to follow:**
-- Functional core / imperative shell: pure desired-state planning around injected calendar, state, clock, and wall ports.
-- Stable action ordering and explicit ownership checks at both planning and application boundaries.
+- One authoritative calendar snapshot plus owned state plus one authoritative `WallSnapshot` yield a deterministic ordered action plan. Any non-authoritative input permits zero wall mutation.
+- Consume U3's flight key as-is: aggregate all source event IDs per key; add once; retain while any source reference remains; remove only an exact owned ID using the captured precondition. A day change is a new key and therefore add-new-then-remove-old, in that order.
+- Persist pending mutation intent before network calls; resolve it from a fresh `WallSnapshot` after success, timeout, or restart.
+- An equivalent manual flight suppresses a duplicate add but is never adopted; the decision appears in dry-run and log output.
+- At capacity (five), add only after a conclusively stale owned entry is removed; never evict a manual entry. Report unplaceable flights rather than forcing them.
+- Use FlightWall's authoritative per-flight active status for mode decisions. No local activity windows.
+- **If modes are exclusive:** acquire a lease only when the daemon changes Area to Tracking and receives provenance; restore Area only by conditional mutation against that provenance; any unverifiable or manual change releases the lease. **If modes coexist:** no mode logic at all.
+- Authoritative dry-run and normal mode share the planner. With FlightWall unavailable, dry-run emits a separate provisional local-intent report with every remote-dependent action marked unknown.
 
 **Test scenarios:**
-- Covers F1 / AE1. Repeated identical snapshots produce one initial add and then no actions; a gate-only event update produces no duplicate.
-- Covers F3 / AE2. Deleting a calendar event removes its exact daemon-owned remote entry while leaving a manual entry unchanged.
-- Covers F2 / AE3. Two overlapping active Friend flights remain tracked; Area Tracking Mode restores only after FlightWall reports both inactive and the daemon's mode provenance still matches.
-- Covers AE4. Authoritative dry-run emits the executable plan without mutation; wall-outage dry-run emits provisional local intent with remote actions unknown and leaves all state unchanged.
-- Error path: a partial calendar read, any ambiguous Flighty-like event, incomplete wall pagination, failed mode/activity read, exceeded bound, or contract drift invokes no add, update, remove, or mode mutation.
-- Recovery: a timeout after add followed by restart reads wall state, resolves the pending intent without creating a duplicate, and adopts ownership only when identity is unambiguous.
-- Edge case: an equivalent manual flight suppresses a daemon add but is never deleted when the calendar event disappears.
-- Edge case: two Friends or a marketing/operating codeshare share one remote flight; deleting or rescheduling one source leaves the entry while another authoritative source remains.
-- Edge case: a user changes wall mode, including away-and-back between polls; mismatched provenance releases the lease and prevents restoration.
-- Edge case: a rescheduled flight updates or atomically replaces only the associated owned entry according to the captured contract.
-- Edge case: full FlightWall capacity uses only a proven atomic replacement or conclusively stale owned deletion; it never evicts a manual entry.
-- Error path: one failed mutation stops dependent actions, records the incomplete operation, and leaves later cleanup for a fresh authoritative cycle.
+- F1/AE1: repeated identical snapshots produce one add then nothing; a gate-only update produces no duplicate.
+- F3/AE2: deleting a calendar event removes its exact owned entry and leaves a manual entry unchanged.
+- F2/AE3: two overlapping active flights stay tracked; Area restores only after both inactive and provenance matches (or the scenario is not applicable if modes coexist).
+- AE4: authoritative dry-run emits the executable plan without mutation; wall-outage dry-run emits provisional intent and changes no state.
+- Any partial read, ambiguous event, incomplete pagination, failed mode read, bound breach, or drift invokes no mutation.
+- Timeout-after-add then restart resolves the pending intent from wall state without duplicating and adopts ownership only when identity is unambiguous.
+- Two Friends or a codeshare on one remote flight: removing one source leaves the entry while another remains.
+- User changes mode away-and-back between polls: provenance mismatch releases the lease.
+- Reschedule within a day updates one entry; to another day adds then removes.
+- Full capacity: only a proven stale owned deletion frees a slot; no manual eviction; excess flights reported.
+- One failed mutation stops dependent actions and records the incomplete operation.
 
 **Verification:**
-- The reconciliation test matrix proves idempotency, ownership isolation, overlap handling, dry-run parity, and crash recovery.
-- No execution path can issue a delete for a remote ID absent from durable ownership state.
+- The matrix proves idempotency, ownership isolation, overlap handling, capacity handling, dry-run parity, and crash recovery.
+- No path can issue a delete for a remote ID absent from durable ownership state.
 
 ---
 
-- [ ] U7. **Package the CLI, daemon lifecycle, setup, and end-to-end verification**
+- [ ] U7. **Daemon lifecycle, remaining commands, systemd, end-to-end verification**
 
 **Goal:** Make the service installable, observable, recoverable, and straightforward to operate on the Linux host.
 
@@ -560,44 +406,34 @@ Decisions worth carrying into U6:
 **Dependencies:** U6
 
 **Files:**
-- Create: `src/flighty_wall/__main__.py`
-- Create: `src/flighty_wall/cli.py`
 - Create: `src/flighty_wall/service.py`
 - Create: `systemd/flighty-wall.service`
-- Create: `README.md`
-- Create: `docs/setup.md`
-- Test: `tests/test_cli.py`
-- Test: `tests/test_service.py`
+- Modify: `src/flighty_wall/cli.py` — add one-cycle dry run, one-cycle apply, and continuous `run`; `inspect-calendar`, `sanitize-capture`, and `probe-wall` already exist
+- Modify: `README.md` — add install, first dry run, controlled first apply, service enablement, credential rotation, backup/retention, troubleshooting
+- Test: `tests/test_service.py`, `tests/test_cli.py`
 
 **Approach:**
-- Expose focused commands for service-account/calendar validation, calendar inspection/fixture sanitization, FlightWall read-only probing, one-cycle dry run, one-cycle apply, and continuous service mode.
-- Keep one synchronization engine behind both CLI and daemon paths so dry-run and production do not drift.
-- Use signal-aware shutdown and a monotonic polling loop; do not start a second cycle while one is running.
-- Require one host-wide lock shared by continuous mode, one-cycle apply, and pending-operation recovery. A competing mutating process exits with an actionable busy result; read-only inspection remains available.
-- Install under a dedicated unprivileged Linux user with `0700` state/configuration directories, `0600` credential/state files, restrictive umask, restart-on-failure, explicit writable paths, journal logging, no new privileges, empty capabilities, strict filesystem/home protection, private temporary storage, and bounded tasks/memory where supported.
-- Document creating and privately sharing the dedicated Google Calendar with the service account, enabling Flighty Friends Calendar Export, safe ephemeral Android capture and cleanup, configuration, first dry run, controlled first apply, service enablement, credential rotation, encrypted backup, retention, and secure deletion.
-- Add a startup status line and per-cycle summary containing counts and durations but no Friend names or secret material.
-
-**Execution note:** Keep live mutation disabled until fixture tests pass and the operator has reviewed a clean dry-run plan.
-
-**Patterns to follow:**
-- Standard-library `argparse` or an equivalently small CLI surface; avoid a framework unless implementation complexity justifies it.
-- systemd security directives compatible with the target Linux distribution, documented alongside any version assumptions.
+- One synchronization engine behind CLI and daemon paths so dry-run and production cannot drift.
+- Signal-aware shutdown and a monotonic loop; never start a second cycle while one runs.
+- One host-wide lock shared by continuous mode, one-cycle apply, and pending-operation recovery. A competing mutating process exits busy with an actionable message; read-only inspection remains available.
+- Introduce `logging` here, not before: `getLogger(__name__)` per module, configured once in the daemon entry point to stderr for the journal, level from config. `inspect-calendar` and `sanitize-capture` keep `click.echo` — they are user-facing diagnostics, not the service. Privacy rule applies: IDs, designators, action types, error classes; never credentials, reservation codes, seats, descriptions, or Friend names.
+- Dedicated unprivileged user, `0700` state/config directories, `0600` credential/state files, restrictive umask, restart-on-failure, explicit writable paths, journal logging, `NoNewPrivileges`, empty capabilities, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, bounded tasks/memory where supported.
+- Startup status line and per-cycle summary: counts and durations only.
 
 **Test scenarios:**
-- Happy path: one-cycle dry run exits successfully, prints stable action counts, and never invokes a mutating client method.
-- Happy path: continuous mode schedules one cycle at a time and honors the configured two-minute interval using an injected clock/sleeper.
-- Integration: fixture-backed calendar plus fixture-backed FlightWall state produces expected add, mode, cleanup, and restore plans through the real CLI boundary.
-- Error path: Calendar auth failure, FlightWall auth failure, and SQLite failure each produce distinct non-zero one-shot exits and concise journal-safe diagnostics.
-- Error path: SIGTERM during sleep exits cleanly; SIGTERM during a cycle completes or safely checkpoints the current operation before exit.
-- Edge case: a cycle runs longer than the poll interval without overlapping the next cycle.
-- Concurrency: while the daemon owns the host lock, one-cycle apply and recovery fail busy without mutation; read-only inspection still works.
-- Security: service environment, status output, and exceptions do not reveal credential values or sensitive calendar fields.
-- Security: deployment permission checks and `systemd-analyze security` meet the documented baseline or record a justified platform exception.
+- One-cycle dry run exits 0, prints stable action counts, never invokes a mutating client method.
+- Continuous mode schedules one cycle at a time and honors the interval with an injected clock/sleeper.
+- Fixture-backed calendar plus fixture-backed wall produce expected plans through the real click boundary.
+- Calendar auth failure, wall auth failure, and SQLite failure produce distinct non-zero exits and journal-safe diagnostics.
+- SIGTERM during sleep exits cleanly; during a cycle completes or checkpoints first.
+- A cycle longer than the interval does not overlap the next.
+- While the daemon holds the lock, apply and recovery fail busy without mutation; inspection still works.
+- Environment, status output, and exceptions reveal no credential values or sensitive calendar fields.
+- `systemd-analyze security` meets the documented baseline or records a justified exception.
 
 **Verification:**
-- A new Linux install can complete authorization, dry-run, controlled apply, reboot, and automatic restart from the documented procedure.
-- systemd reports healthy status and logs one concise summary per cycle.
+- A new Linux install completes authorization, dry-run, controlled apply, reboot, and automatic restart from `README.md` alone.
+- systemd reports healthy status and one concise summary per cycle.
 - End-to-end fixture tests cover AE1–AE4 without contacting Google or FlightWall.
 
 ---
@@ -605,10 +441,10 @@ Decisions worth carrying into U6:
 ## System-Wide Impact
 
 - **Interaction graph:** Flighty updates Google Calendar; the service reads and parses events; reconciliation joins calendar state, SQLite ownership, wall state, and time; the FlightWall adapter performs mutations; systemd owns process lifecycle.
-- **Error propagation:** Any incomplete calendar or wall read, parser ambiguity, resource-bound breach, failed provenance check, or unknown contract fingerprint becomes non-authoritative. The service logs and retries later but performs zero wall mutation. Mutation uncertainty is journaled for reconciliation before further changes.
-- **State lifecycle risks:** The main risks are crashes between remote mutation and local commit, duplicate source events for one physical flight, conditional-delete races, remote ID reuse, and stale mode provenance. Aggregated source references, pending intents, contract-backed preconditions, and authoritative re-reads address these conservatively.
-- **API surface parity:** Authorization, inspection, dry-run, one-shot apply, and daemon mode all share the same configuration, parser, planner, state, and client boundaries.
-- **Integration coverage:** Fixture-backed end-to-end tests prove the cross-layer flows; one controlled live validation proves the current external contracts without making routine tests network-dependent.
+- **Error propagation:** Any incomplete calendar or wall read, parser ambiguity, bound breach, failed provenance check, or unknown contract fingerprint becomes non-authoritative. The service logs and retries later but performs zero wall mutation. Mutation uncertainty is journaled before further changes.
+- **State lifecycle risks:** Crashes between remote mutation and local commit, duplicate source events for one flight, conditional-delete races, remote ID reuse, stale mode provenance, and the five-flight cap. Aggregated source references, pending intents, contract-backed preconditions, and authoritative re-reads address these conservatively.
+- **API surface parity:** Inspection, probe, dry-run, one-shot apply, and daemon mode share configuration, parser, planner, state, and client boundaries.
+- **Integration coverage:** Fixture-backed end-to-end tests prove cross-layer flows; one controlled live validation per external contract keeps routine tests offline.
 - **Unchanged invariants:** Flighty remains the human-facing source of Friends and flights. FlightWall firmware, data providers, device enrollment, manually tracked entries, and unrelated settings remain untouched.
 
 ---
@@ -616,18 +452,20 @@ Decisions worth carrying into U6:
 ## Risks & Dependencies
 
 | Risk | Mitigation |
-|---|---|
+| --- | --- |
 | FlightWall changes its undocumented backend | Validate an allowlisted contract fingerprint; unknown versions force read-only mode until recapture and fixture validation. |
-| FlightWall lacks a requirement-critical capability | U4 is a hard gate; stop and ask the user to reduce scope rather than weaken manual-entry or mode-safety guarantees. |
-| HTTPS interception leaks credentials or weakens production TLS | Use an ephemeral restricted capture environment, delete raw flows, rotate credentials, remove the CA, and prohibit capture trust or disabled verification in production. |
-| Flighty changes calendar event formatting | Characterization fixtures, cycle-wide fail-closed parsing, redacted diagnostics, and a fixture refresh procedure. |
-| Calendar or wall outage appears as an empty source | Separate authoritative success from empty data; all non-authoritative inputs cause zero wall mutation. |
-| Calendar writer submits hostile or excessive events | Keep calendar ACL private, use a calendar-isolated service account, validate candidate shape, and enforce page/event/field/byte caps. |
-| Flighty-to-Google export is delayed or stale | Report Google poll time separately from event update time, measure propagation during setup, and avoid claiming that API success proves Flighty freshness. |
-| Crash occurs after a remote mutation but before local commit | Persist pending intent first, then resolve against a fresh authoritative WallSnapshot before retrying. |
-| Manual app changes race the daemon | Require conditional delete and mode provenance; if unavailable, block those automatic behaviors instead of relying on check-then-act. |
-| Credentials or travel state leak from disk or backup | Use `0700` directories, `0600` files/WAL/SHM, atomic writes, redacted logs, encrypted backups, retention, and secure deletion guidance. |
-| Polling triggers rate limits | Use a seven-day bounded calendar query, mutate only on state changes, honor server retry guidance, and make interval configurable. |
+| FlightWall lacks a requirement-critical capability | U4 is a hard gate; stop and ask the owner to reduce scope rather than weaken manual-entry or mode-safety guarantees. |
+| Area and tracking modes turn out to coexist | Design simplifies: U6 drops the lease, R9 becomes not applicable. Record the finding in §4 before U5 starts. |
+| HTTPS interception leaks credentials or weakens production TLS | Ephemeral restricted capture environment, raw flows deleted, credentials rotated, CA removed; capture trust and disabled verification rejected at config load. |
+| Flighty changes calendar event formatting | Characterization fixtures, cycle-wide fail-closed parsing, redacted diagnostics, `mise run fixture:calendar` to refresh. |
+| Calendar or wall outage appears as an empty source | Authority is explicit on every snapshot; all non-authoritative inputs cause zero wall mutation. |
+| Calendar writer submits hostile or excessive events | Private calendar ACL, calendar-isolated service account, candidate-shape validation, page/event/field/byte caps. |
+| Flighty-to-Google export is delayed or stale | Observation time and event `updated` reported separately; API success never claims Flighty freshness. |
+| Crash after remote mutation but before local commit | Persist pending intent first, then resolve against a fresh authoritative `WallSnapshot` before retrying. |
+| Manual app changes race the daemon | Require conditional delete and mode provenance; if unavailable, block those behaviors instead of check-then-act. |
+| Wall is at its five-flight cap | Plan around capacity; remove only conclusively stale owned entries; never evict a manual entry; report unplaceable flights. |
+| Credentials or travel state leak from disk or backup | `0700` directories, `0600` files/WAL/SHM, atomic writes, redacted logs, encrypted backups, retention, secure deletion guidance. |
+| Polling triggers rate limits | Seven-day bounded calendar query, mutate only on change, honor server retry guidance, configurable interval. |
 
 ---
 
@@ -636,25 +474,26 @@ Decisions worth carrying into U6:
 - A new Friend flight exported by Flighty appears in the next successful calendar snapshot and is added to FlightWall once.
 - Ten unchanged sync cycles produce zero FlightWall mutations after initial convergence.
 - Calendar deletion removes only the exact daemon-owned entry; manual entries remain unchanged in all automated tests.
-- Overlapping Friends' flights keep Flight Tracking Mode active until FlightWall reports the final managed flight inactive and the daemon's mode provenance remains valid.
+- Overlapping Friends' flights keep Flight Tracking Mode active until FlightWall reports the final managed flight inactive and the daemon's mode provenance remains valid — or, if modes coexist, both flights are simply present until inactive.
 - Simulated Google, FlightWall, and process failures never trigger broad deletion or loss of ownership state.
-- A clean Linux host can reach a successful dry run by following `docs/setup.md` without reading source code.
+- A clean Linux host reaches a successful dry run by following `README.md` without reading source code.
 
 ---
 
 ## Documentation / Operational Notes
 
-- `README.md` should explain the outcome, supported environment, current unofficial FlightWall dependency, and safest first-run path.
-- `docs/setup.md` should separate Google setup, Flighty calendar configuration, FlightWall contract capture, daemon installation, and troubleshooting into short checklists, including a controlled Flighty-to-Google update used to record expected propagation delay.
-- `docs/flightwall-api-discovery.md` must record the app version and capture date so future breakage can be compared with the known contract.
+- `README.md` carries all setup: Google calendar and service account (done), Flighty export (done), fixture capture (done), FlightWall capture (done, pending the owner running it), and — from U7 — daemon installation, first dry run, controlled first apply, credential rotation, backup, troubleshooting.
+- `docs/flightwall-api-discovery.md` must record app version and capture date per fixture so future breakage can be compared with the known contract.
 - Back up SQLite state only to encrypted, access-controlled storage; include WAL/SHM consistency, retention, restoration, and secure deletion procedures.
-- First deployment sequence: share the dedicated calendar read-only with the service account, inspect/sanitize calendar data, pass the FlightWall capability gate, delete raw captures and rotate captured credentials, run fixture tests, run a live read-only probe, review an authoritative dry run, perform one controlled apply, then enable the daemon.
+- First deployment sequence: pass the FlightWall capability gate → delete raw captures and rotate captured credentials → fixture tests → `probe-wall` read-only → review an authoritative dry run → one controlled apply → enable the daemon.
 
 ---
 
 ## Sources & References
 
 - **Origin document:** [`docs/brainstorms/2026-09-21-flighty-friends-flightwall-sync-requirements.md`](../brainstorms/2026-09-21-flighty-friends-flightwall-sync-requirements.md)
+- **Tooling migration (done):** [`docs/plans/2026-09-22-001-chore-click-pydantic-migration-plan.md`](2026-09-22-001-chore-click-pydantic-migration-plan.md)
+- **Capture protocol and capability gate:** [`docs/flightwall-api-discovery.md`](../flightwall-api-discovery.md)
 - Flighty Calendar Export: https://flighty.com/help/calendar-export
 - Flighty Friends: https://flighty.com/help/flighty-friends
 - Flighty calendar troubleshooting: https://flighty.com/help/troubleshoot-calendar-sync

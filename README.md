@@ -2,7 +2,7 @@
 
 Sync Flighty Friends flights from a dedicated Google Calendar to a FlightWall Mini.
 
-> Current status: Google Calendar ingestion and sanitized fixture capture work. FlightWall writes remain disabled until the owner's Android app contract passes the safety checks in the implementation plan.
+> **Status:** Calendar intake, Flighty event parsing, and both fixture sanitizers are done and verified against the live calendar (`mise run check`: 102 tests, 94% coverage). Nothing talks to the wall yet. The one open blocker is [step 6](#6-capture-the-flightwall-contract): the FlightWall app contract has to be captured from the owner's own device before a client can be written.
 
 ## Requirements
 
@@ -134,6 +134,15 @@ mise run check  # lint + types + tests + deps, same as CI
 
 `mise tasks` lists the individual tasks (`lint`, `lint:fix`, `test`, `deps`). `mise run test -- -k name` and `mise run lint -- ruff-check` pass extra arguments through.
 
-## Plan
+## What is done, what is next
 
-See `docs/plans/2026-09-21-001-feat-flighty-flightwall-sync-plan.md` for the reviewed implementation plan, external-contract gates, and remaining work.
+| Step | State |
+| --- | --- |
+| 1–5 Google calendar, Flighty export, service account, fixture capture | done, verified live |
+| 6 FlightWall contract capture | **waiting on you** — about 90 minutes with your phone |
+| FlightWall client, reconciliation, systemd daemon | not started; gated on step 6 |
+
+The reviewed plan, the per-unit record of what landed, and the remaining work are in
+`docs/plans/2026-09-21-001-feat-flighty-flightwall-sync-plan.md`. The capture protocol and the
+capability gate that decides whether the wall integration can proceed are in
+`docs/flightwall-api-discovery.md`.

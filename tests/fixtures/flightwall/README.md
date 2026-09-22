@@ -13,7 +13,7 @@ fixtures with the command below.
 ## Producing fixtures
 
 ```bash
-.venv/bin/flighty-wall sanitize-capture \
+uv run flighty-wall sanitize-capture \
   --input captures/flightwall.har \
   --output-dir tests/fixtures/flightwall \
   --host api.example-flightwall-host \

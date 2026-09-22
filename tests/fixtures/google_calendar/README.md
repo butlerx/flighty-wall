@@ -8,7 +8,13 @@ raw event identifiers.
 ## Producing a fixture
 
 ```bash
-.venv/bin/flighty-wall inspect-calendar \
+mise run fixture:calendar -- --redact-term "Friend Name"
+```
+
+which runs:
+
+```bash
+uv run flighty-wall inspect-calendar \
   --config config.toml \
   --output tests/fixtures/google_calendar/friend-flight.json \
   --lookahead-days 60 --lookback-days 3 \
@@ -36,5 +42,8 @@ a month out). The fields the parser depends on:
 - `location` — origin airport or city name, not an IATA code.
 - `status` is `confirmed`; `transparency` is `transparent`; `eventType` is `default`.
 
-Flight numbers are not zero-padded (`BA 5`, not `BA0005`), so the FlightWall
+Flight numbers are not zero-padded (`BA 5`, not `BA0005`), so the FlightWall
 identifier format must be confirmed by the U4 capture before it is assumed.
+
+`cancelled-flight.json` holds one synthetic event in the same shape with `status` set to
+`cancelled`; the parser must produce an explicit `cancelled` outcome for it, not a flight.

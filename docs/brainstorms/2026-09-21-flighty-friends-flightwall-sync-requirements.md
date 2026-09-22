@@ -117,24 +117,31 @@ Flighty already contains current and upcoming flights for the owner's Flighty Fr
 
 ## Dependencies / Assumptions
 
-- Flighty Calendar Export remains enabled and includes Friends' flights with their names and standard flight information.
-- The dedicated Google Calendar can be shared read-only with a service account used only by the Linux daemon.
-- FlightWall's app backend must expose authoritative, complete state plus safe identifiers or conditional-write semantics for add/remove operations and mode changes; implementation stops and returns for a scope decision if those capabilities cannot be proven.
+- Flighty Calendar Export remains enabled and includes Friends' flights with their names and standard flight information. *Verified live 2026-09-22.*
+- The dedicated Google Calendar can be shared read-only with a service account used only by the Linux daemon. *Verified live 2026-09-22.*
+- FlightWall's app backend must expose authoritative, complete state plus safe identifiers or conditional-write semantics for add/remove operations and mode changes; implementation stops and returns for a scope decision if those capabilities cannot be proven. *Unverified: waits on the owner's capture.*
 - FlightWall remains authoritative for each tracked flight's active window; its published default is approximately 15–30 minutes before takeoff through 30 minutes after landing.
+- The FlightWall Mini displays up to five flights at a time (vendor FAQ). Reconciliation must treat being at capacity as a normal condition.
 
 ---
 
 ## Outstanding Questions
 
-### Deferred to Planning
+### Resolved during implementation
 
-- [Affects R2, R3][Needs research] Which stable calendar fields identify a Friend flight across updates, cancellations, codeshares, and time-zone changes?
-- [Affects R6][Technical] What lookahead and polling defaults minimize API use while adding flights early enough for FlightWall?
-- [Affects R7, R8, R9][Needs research] What authenticated FlightWall app requests list, add, remove, and activate tracked flights and switch display modes?
-- [Affects R11, R12][Technical] Verify that the dedicated calendar can be shared read-only with the daemon's Google service account under the owner's Google account policy.
+- [Affects R2, R3] **Stable calendar fields.** `summary` (`"<Friend>: ✈ DUB→BCN • VY 8721"`, with `U+00A0` and `U+200B` normalised), `description`, `start`/`end` with explicit time zones, and `status`. The stable key is `DESIGNATOR:ORIGIN:UTC-departure-date` carrying the set of contributing Google event IDs; codeshares make the cycle non-authoritative because the export carries no codeshare data. Recorded in `tests/fixtures/google_calendar/README.md`.
+- [Affects R6] **Defaults.** Poll every 120 seconds, manage the next 7 days; bounded to 30–86 400 seconds and 1–30 days in `config.py`.
+- [Affects R11, R12] **Read-only sharing.** The dedicated calendar was shared with the service account's `client_email` as *See all event details* and read live through `calendar.readonly` on 2026-09-22.
+
+### Open — settled only by the FlightWall capture
+
+- [Affects R7, R8, R9] Which authenticated FlightWall app requests list, add, remove, and activate tracked flights and switch display modes? Protocol and capability gate: `docs/flightwall-api-discovery.md`.
+- [Affects R9] Are Area Tracking Mode and Flight Tracking Mode mutually exclusive? The vendor's "up to 5 flights at a time" suggests they may share one list. If they coexist, R9 is not applicable and the mode-lease design is dropped.
 
 ---
 
-## Next Steps
+## Status
 
--> `/ce-plan` for structured implementation planning
+Planned in `docs/plans/2026-09-21-001-feat-flighty-flightwall-sync-plan.md`. Calendar intake and
+parsing (U1–U3) are done and verified against the live calendar. Everything that touches the wall
+(U5–U7) waits on the owner running the U4 capture.
