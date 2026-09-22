@@ -175,7 +175,7 @@ Later units must fit the conventions the first three units set:
 │   ├── plans/2026-09-22-001-chore-click-pydantic-migration-plan.md   (done)
 │   └── flightwall-api-discovery.md            (U4: findings tables empty until capture)
 ├── src/flighty_wall/
-│   ├── __init__.py, __main__.py, py.typed
+│   ├── __init__.py, __main__.py
 │   ├── auth.py          service-account gateway
 │   ├── calendar.py      bounded authoritative reads
 │   ├── capture.py       HAR → sanitized FlightWall fixtures
