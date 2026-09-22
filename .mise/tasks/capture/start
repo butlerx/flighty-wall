@@ -46,11 +46,14 @@ cat <<EOF
 
 proxy: 127.0.0.1:$PORT   flows: captures/flightwall.flow   HAR on exit: captures/flightwall.har
 
-  1. Quit and relaunch TheFlightWall.app so it picks up the proxy (that is sequence 1).
-  2. Drive the app as described in docs/capture.md §3.
+  1. Quit and relaunch TheFlightWall.app so it picks up the proxy.
+  2. Open the wall -> Flight Tracking; add, save, remove, save. Each Save is one POST.
+     Details: docs/capture.md section 3.
   3. Ctrl-C here, then: mise run capture:stop
+  4. mise run capture:sanitize -- --host api.theflightwall.com
 
-A connection error in the app after relaunch means pinning: Ctrl-C, capture:stop, read §5.
+If the app shows a connection error after relaunch it has started pinning certificates:
+Ctrl-C, mise run capture:stop, then docs/capture.md section 5.
 EOF
 
 if [ "$WEB" = "true" ]; then
