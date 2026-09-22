@@ -1,6 +1,6 @@
 """Ownership-safe reconciliation between wanted flights and the wall's tracked list.
 
-Three facts from the capture shape every rule here (``docs/flightwall-api-discovery.md``):
+Three facts from the capture shape every rule here (``docs/flightwall-api.md``):
 the wall has no ownership signal, so the journal is the only record of what the daemon
 added; writes are whole-document last-writer-wins, so a plan is a complete desired list,
 not a diff; and the server enforces no cap, so the daemon holds the line at five itself.
@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING, Literal, Protocol
 
 from .flightwall import MAX_TRACKED_FLIGHTS, TrackedFlight, WriteOutcome, WriteResult
 from .models import SnapshotAuthority
-from .state import PendingWrite
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -240,7 +239,6 @@ def _rfc3339(value: datetime) -> str:
 
 
 __all__ = [
-    "PendingWrite",
     "Plan",
     "RecoveryOutcome",
     "Wanted",

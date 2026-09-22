@@ -98,8 +98,8 @@ The fixture is written with mode `0600`. `config.toml`, credential files, runtim
 
 **Done 2026-09-22.** The FlightWall backend has no public API, so its contract was observed
 from `TheFlightWall.app` running on the owner's Mac, against the owner's own account and
-wall, then probed from the shell. The findings, the four committed fixtures, and the closed
-capability gate are in `docs/flightwall-api-discovery.md`.
+wall, then probed from the shell. The contract is written up in `docs/flightwall-api.md`;
+the procedure, for when the client reports `flightwall_contract_drift`, is `docs/capture.md`.
 
 To re-run or extend the capture:
 
@@ -217,16 +217,54 @@ mise run check  # lint + types + tests + deps, same as CI
 
 `mise tasks` lists the individual tasks (`lint`, `lint:fix`, `test`, `deps`). `mise run test -- -k name` and `mise run lint -- ruff-check` pass extra arguments through.
 
-## What is done, what is next
+## Design
+
+Three facts about the FlightWall contract (`docs/flightwall-api.md`) shape everything else:
+
+- **One document, replaced whole.** `GET /configuration` returns the owner's entire display
+  and area setup with `tracked_flights` inside it; `POST` replaces all of it, last-writer-wins,
+  with no conditional write. So the client copies the document it just read, changes only
+  `tracked_flights`, and sends every other byte back unchanged — tested byte-for-byte against
+  the app's own POST.
+- **No ownership signal.** An entry the app added and one the daemon added look identical on
+  the server. The daemon's SQLite journal (`owned_flights`) is the only record of what it
+  added, and the only thing it will ever remove. Whatever is on the wall the first time the
+  daemon runs is the owner's forever.
+- **No server-side cap.** The app stops at five; the server stored ten when asked. The daemon
+  holds the line at five itself and reports flights that do not fit rather than forcing them.
+
+The calendar side is the same shape. Every read — Google page, parsed cycle, wall document —
+is either *authoritative* or carries a reason it is not, and nothing is written from a
+non-authoritative read. A Flighty event the parser does not recognise fails the whole cycle
+rather than being skipped, so a format change shows up as a loud stop, not a silently missing
+flight.
+
+There is no display mode to manage. Tracked flights show alongside area traffic; the daemon
+adds and removes entries and does nothing else to the wall.
+
+Layout:
+
+| Module | Role |
+| --- | --- |
+| `calendar.py`, `auth.py` | Bounded, service-account reads of the dedicated Google Calendar |
+| `parser.py` | Flighty export → `DesiredFlight`, keyed `DESIGNATOR:ORIGIN:UTC-date`, fail-closed |
+| `flightwall.py` | The contract: `read()`, `replace_tracked_flights()`, fingerprint, `WallFailure` |
+| `reconcile.py` | Pure planner + the one writer; journal-as-owner, cap of five |
+| `state.py` | SQLite: `owned_flights`, one `pending_writes` row, `0700`/`0600` enforced |
+| `service.py` | One cycle, the loop, the host lock |
+| `cli.py` | `inspect-calendar`, `sanitize-capture`, `probe-wall`, `sync`, `run` |
+| `capture.py`, `redaction.py` | Turn a HAR into committable fixtures with nothing personal in them |
+
+Two things the live data taught that are easy to get wrong again: Flighty's `summary` carries
+`U+00A0` between carrier and number and `U+200B` around the route arrow (normalise before
+matching), and Google API success says nothing about whether Flighty has exported recently
+(observation time and event `updated` are kept apart).
+
+## Status
 
 | Step | State |
 | --- | --- |
 | 1–5 Google calendar, Flighty export, service account, fixture capture | done, verified live |
-| 6 FlightWall contract capture | done; capability gate closed |
-| FlightWall client, reconciliation, daemon | done, tested against captured fixtures |
-| 7–9 credential file, first apply, systemd | **next — the first live run from Linux** |
-
-The reviewed plan, the per-unit record of what landed, and the remaining work are in
-`docs/plans/2026-09-21-001-feat-flighty-flightwall-sync-plan.md`. The capture protocol and the
-capability gate that decides whether the wall integration can proceed are in
-`docs/flightwall-api-discovery.md`.
+| 6 FlightWall contract capture | done; `docs/flightwall-api.md` |
+| FlightWall client, reconciliation, daemon | done; add → no-change → remove verified on the real wall from this Mac |
+| 7–9 credential file, first apply, systemd | **next — the first run from the Linux host** |

@@ -266,6 +266,8 @@ def sync(ctx: click.Context, *, config_path: Path, apply_flag: bool) -> None:
     except LockBusyError as error:
         click.echo(f"busy: {error}", err=True)
         ctx.exit(EXIT_BUSY)
+    finally:
+        wall.close()
 
     _print_report(report, apply=apply)
     ctx.exit(_exit_code(report))
@@ -306,6 +308,8 @@ def run(ctx: click.Context, *, config_path: Path, log_level: str) -> None:
     except LockBusyError as error:
         click.echo(f"busy: {error}", err=True)
         ctx.exit(EXIT_BUSY)
+    finally:
+        wall.close()
     click.echo(f"flighty-wall stopped after {cycles} cycle(s)", err=True)
 
 

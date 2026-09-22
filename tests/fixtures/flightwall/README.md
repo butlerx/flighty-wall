@@ -7,8 +7,7 @@ from a plausible REST shape — an invented fixture would let U5 build a client 
 contract that does not exist, and the first real request would fail on the wall rather than
 in a test.
 
-See `docs/flightwall-api-discovery.md` for the contract, the capture protocol, and what is
-still open.
+The contract is `docs/flightwall-api.md`; the capture procedure is `docs/capture.md`.
 
 ## What is here
 
@@ -24,9 +23,9 @@ has no separate list call, no mode, and no per-entry delete: the daemon GETs the
 edits `request_config.tracked_flights`, and POSTs it back.
 
 The follow-up probes (six entries, interrupted POST, stale `version`, bad key, missing
-`user-agent`, post-landing) were run from the shell and are recorded in the discovery document
-§3, §4.3, §4.5, §4.6 rather than as fixtures: every write probe returned the same document
-shape as `post-configuration-add.json`, and the two error shapes are short enough to quote.
+`user-agent`, post-landing) were run from the shell and are recorded in `docs/flightwall-api.md`
+§6, §8, and §9 rather than as fixtures: every write probe returned the same document shape as
+`post-configuration-add.json`, and the two error shapes are short enough to quote.
 
 ## Producing fixtures
 
@@ -71,6 +70,5 @@ The committed fixtures were scanned against the raw HAR for every one of these: 
 
 ## Provenance
 
-Every fixture has a row in §6 of `docs/flightwall-api-discovery.md` recording capture date,
-app version, platform, and which fields were removed beyond the sanitizer's defaults. A
-fixture with no provenance row cannot be trusted later.
+Every fixture has a row in §11 of `docs/flightwall-api.md` recording capture date, app
+version, and platform. A fixture with no provenance row cannot be trusted later.

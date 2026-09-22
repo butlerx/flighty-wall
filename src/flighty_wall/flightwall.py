@@ -1,6 +1,6 @@
 """FlightWall client for the one contract the capture proved: a whole-document configuration.
 
-Everything here mirrors ``docs/flightwall-api-discovery.md`` §4. There is one resource,
+Everything here mirrors ``docs/flightwall-api.md``. There is one resource,
 ``/configuration``; ``GET`` reads it and ``POST`` replaces it. Tracked flights are a list
 inside it, keyed by ``flight_number`` and capped at five by the app, not the server. There
 are no per-entry identifiers, no conditional writes, and no display mode, so the client
@@ -219,6 +219,12 @@ class FlightWallClient:
             "x-api-key": credentials.api_key,
             "x-user-id": credentials.user_id,
         }
+
+    def close(self) -> None:
+        """Release the transport's connections, if it holds any."""
+        closer = getattr(self._transport, "close", None)
+        if callable(closer):
+            closer()
 
     def read(self) -> WallSnapshot:
         """Read the configuration. Authoritative only if it parses and matches the fingerprint."""

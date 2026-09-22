@@ -16,7 +16,6 @@ class SnapshotAuthority(StrEnum):
 
     AUTHORITATIVE = "authoritative"
     NON_AUTHORITATIVE = "non_authoritative"
-    PROVISIONAL = "provisional"
 
 
 @dataclass(frozen=True, slots=True)

@@ -75,7 +75,7 @@ class Storage(BaseModel):
 class FlightWall(BaseModel):
     """Which wall API to talk to and where its per-install key pair lives.
 
-    The contract is recorded in ``docs/flightwall-api-discovery.md``. The host is pinned
+    The contract is recorded in ``docs/flightwall-api.md``. The host is pinned
     to the one the capture observed; anything else is a misconfiguration, not a feature.
     """
 

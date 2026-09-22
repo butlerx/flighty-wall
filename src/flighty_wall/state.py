@@ -1,6 +1,6 @@
 """Private, crash-safe SQLite storage: the ownership journal and one pending write.
 
-The wall carries no ownership signal (see ``docs/flightwall-api-discovery.md`` §4.3), so
+The wall carries no ownership signal (see ``docs/flightwall-api.md`` §4), so
 this journal is the only record of which ``flight_number`` entries the daemon added. A
 ``flight_number`` absent from ``owned_flights`` is the owner's and is never removed.
 """
