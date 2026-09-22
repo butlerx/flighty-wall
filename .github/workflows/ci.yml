@@ -37,7 +37,7 @@ jobs:
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           experimental: true
-          cache: true # zizmor: ignore[cache-poisoning]
+          cache: true
 
       # lint = prek (ruff, mypy, pyright, tombi, yamlfmt, actionlint, zizmor);
       # deps = deptry. Both defined in .mise/tasks.
@@ -66,6 +66,6 @@ jobs:
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           experimental: true
-          cache: true # zizmor: ignore[cache-poisoning]
+          cache: true
 
       - run: mise run test

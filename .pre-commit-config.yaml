@@ -36,6 +36,14 @@ repos:
     hooks:
       - id: yamlfmt
 
+  # Runs after yamlfmt so it only reports what a formatter cannot fix.
+  - repo: https://github.com/adrienverge/yamllint
+    rev: cba56bcde1fdd01c1deb3f945e69764c291a6530 # frozen: v1.38.0
+    hooks:
+      - id: yamllint
+        args:
+          - --strict
+
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
     rev: 451b56af716f9f0d0c2b816503a3fd0cf8b036fa # frozen: v1.29.0
     hooks:
