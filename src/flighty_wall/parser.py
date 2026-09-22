@@ -198,6 +198,7 @@ def _desired_flights(interpretations: Iterable[EventInterpretation]) -> tuple[De
 
 def _merge(key: str, contributions: Sequence[_Contribution]) -> DesiredFlight:
     """Collapse every event that named one flight, preferring the freshest departure."""
+    # pi-lens-ignore: unchecked-throwing-call — never empty: a key exists only after append()
     freshest = max(contributions, key=_freshness)
     identity = freshest.identity
     return DesiredFlight(
