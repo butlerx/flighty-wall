@@ -1,0 +1,49 @@
+{
+  "request": {
+    "body": null,
+    "header_names": [
+      "accept",
+      "accept-encoding",
+      "accept-language",
+      "priority",
+      "user-agent",
+      "x-api-key"
+    ],
+    "host": "api.theflightwall.com",
+    "method": "GET",
+    "path": "/feature-flags/app",
+    "query_keys": []
+  },
+  "response": {
+    "body": {
+      "json": [
+        {
+          "disabled_message": "",
+          "enabled": true,
+          "feature_flag_id": "individual_flight_tracking",
+          "state_changed_at": "2026-01-16T00:04:48+00:00"
+        },
+        {
+          "disabled_message": null,
+          "enabled": false,
+          "feature_flag_id": "plus_sync",
+          "state_changed_at": "2026-09-11T19:24:<redacted-coordinate>+00:00"
+        }
+      ],
+      "mime_type": "application/json"
+    },
+    "header_names": [
+      "alt-svc",
+      "cf-cache-status",
+      "cf-ray",
+      "content-encoding",
+      "content-type",
+      "date",
+      "nel",
+      "report-to",
+      "server",
+      "x-fw-backend"
+    ],
+    "status": 200
+  }
+}

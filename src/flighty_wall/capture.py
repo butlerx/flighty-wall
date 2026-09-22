@@ -40,6 +40,10 @@ SENSITIVE_BODY_KEYS = frozenset(
         "signature",
         "token",
         # Identifiers that tie a fixture back to the owner's account or hardware.
+        "account_id",
+        "accountid",
+        "device_id",
+        "deviceid",
         "device_token",
         "email",
         "phone",
@@ -48,6 +52,8 @@ SENSITIVE_BODY_KEYS = frozenset(
         "serial_number",
         "session",
         "session_id",
+        "user_id",
+        "userid",
         # Area-tracking configuration is the owner's home location.
         "lat",
         "latitude",

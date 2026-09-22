@@ -1,0 +1,169 @@
+{
+  "request": {
+    "body": {
+      "json": {
+        "display_config": {
+          "anchor_airports": [],
+          "border_brightness_percent": 100,
+          "border_enable": false,
+          "brightness_percent": 70,
+          "clock": {
+            "additional_timezones": null,
+            "show_date": true,
+            "style": "DEFAULT"
+          },
+          "clock_dst_enabled": true,
+          "clock_is_24hr": true,
+          "clock_utc_offset_minutes": 0,
+          "hide_max_flights_screen": false,
+          "layout_template": "TECHNICAL",
+          "loading_template": "CLOCK",
+          "max_flights_behavior": "text",
+          "metric_display": {
+            "alt_b_unit": "meters",
+            "dist_unit": "meters",
+            "trk_unit": "deg",
+            "vel_unit": "kmh",
+            "vr_unit": "kmh"
+          },
+          "model": "mini-v1",
+          "sleep_time": {
+            "end": "07:00",
+            "start": "22:00",
+            "utc_offset_minutes": 60
+          },
+          "time_zone": {
+            "dst_rule": "europe",
+            "standard_utc_offset_minutes": 0
+          }
+        },
+        "request_config": {
+          "data_filters": null,
+          "geo_request": null,
+          "geo_requests": null,
+          "radius_request": {
+            "id": "<redacted-uuid>",
+            "latitude": "<redacted>",
+            "longitude": "<redacted>",
+            "max_altitude": null,
+            "min_altitude": null,
+            "name": "Home",
+            "radius_km": 7.6,
+            "type": "radius"
+          },
+          "radius_requests": null,
+          "tracked_flights": [
+            {
+              "created_at": "2026-09-21T10:49:06.351Z",
+              "flight_number": "EI61",
+              "show_distance_travelled": true,
+              "show_metrics": true
+            }
+          ]
+        },
+        "userId": "<redacted>",
+        "version": 2
+      },
+      "mime_type": "text/plain;charset=UTF-8"
+    },
+    "header_names": [
+      "accept",
+      "accept-encoding",
+      "accept-language",
+      "content-length",
+      "content-type",
+      "priority",
+      "user-agent",
+      "x-api-key",
+      "x-user-id"
+    ],
+    "host": "api.theflightwall.com",
+    "method": "POST",
+    "path": "/configuration",
+    "query_keys": []
+  },
+  "response": {
+    "body": {
+      "json": {
+        "display_config": {
+          "anchor_airports": [],
+          "border_brightness_percent": 100,
+          "border_enable": false,
+          "brightness_percent": 70,
+          "clock": {
+            "additional_timezones": null,
+            "show_date": true,
+            "style": "DEFAULT"
+          },
+          "clock_dst_enabled": true,
+          "clock_is_24hr": true,
+          "clock_utc_offset_minutes": 0,
+          "hide_max_flights_screen": false,
+          "layout_template": "TECHNICAL",
+          "loading_template": "CLOCK",
+          "max_flights_behavior": "text",
+          "metric_display": {
+            "alt_b_unit": "meters",
+            "dist_unit": "meters",
+            "trk_unit": "deg",
+            "vel_unit": "kmh",
+            "vr_unit": "kmh"
+          },
+          "model": "mini-v1",
+          "sleep_time": {
+            "end": "07:00",
+            "start": "22:00",
+            "utc_offset_minutes": 60
+          },
+          "time_zone": {
+            "dst_rule": "europe",
+            "standard_utc_offset_minutes": 0
+          }
+        },
+        "meta": {
+          "savedAtEpochMs": 1790072749571,
+          "version": 1
+        },
+        "request_config": {
+          "data_filters": null,
+          "geo_request": null,
+          "geo_requests": null,
+          "radius_request": {
+            "id": "<redacted-uuid>",
+            "latitude": "<redacted>",
+            "longitude": "<redacted>",
+            "max_altitude": null,
+            "min_altitude": null,
+            "name": "Home",
+            "radius_km": 7.6,
+            "type": "radius"
+          },
+          "radius_requests": null,
+          "tracked_flights": [
+            {
+              "created_at": "2026-09-21T10:49:06.351Z",
+              "flight_number": "EI61",
+              "show_distance_travelled": true,
+              "show_metrics": true
+            }
+          ]
+        },
+        "version": 2
+      },
+      "mime_type": "application/json"
+    },
+    "header_names": [
+      "alt-svc",
+      "cf-cache-status",
+      "cf-ray",
+      "content-encoding",
+      "content-type",
+      "date",
+      "nel",
+      "report-to",
+      "server",
+      "x-fw-backend"
+    ],
+    "status": 200
+  }
+}

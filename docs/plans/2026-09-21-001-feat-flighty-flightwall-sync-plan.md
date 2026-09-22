@@ -17,23 +17,25 @@ deepened: 2026-09-21
 | U1 Foundation and state | done | `b9ad5c7`; config moved to pydantic in `3e3122c` |
 | U2 Google Calendar intake | done, verified live | `97f9a63`, `be1a3b0`, `b792263` |
 | U3 Flighty event parser | done, verified live | `b87df2c` |
-| U4 FlightWall contract capture | **blocked on the owner** | tooling and protocol in `d92d56c`, `388078c`; no fixtures captured |
-| U5 FlightWall client | not started | gated by U4 |
-| U6 Reconciliation engine | not started | gated by U5 |
+| U4 FlightWall contract capture | **mostly done**; 4 cheap sequences open | contract captured 2026-09-22 from the owner's Mac; fixtures committed; gate rows 6 and 7 open |
+| U5 FlightWall client | **unblocked**, not started | reduced design: whole-document GET/POST, no mode, no per-entry ID |
+| U6 Reconciliation engine | not started | gated by U5; auto-remove waits on gate row 6, sixth-flight handling on row 7 |
 | U7 Daemon and operations | not started | gated by U6 |
 
-`mise run check` is green: 102 tests, 94% coverage, all hooks passing.
+`mise run check` is green: 103 tests, 94% coverage, all hooks passing.
 
-**The single remaining blocker is U4.** Nothing else in this plan can proceed until the owner
-runs the capture in `docs/flightwall-api-discovery.md` and the capability gate there passes.
+**What the capture changed:** area tracking and tracked flights coexist, so there is no display
+mode to lease and **R9 is withdrawn**. The wall exposes one configuration document; add and
+remove are both a whole-document `POST`, last-writer-wins, keyed by `flight_number`. Ownership
+is therefore entirely daemon-side. Details: `docs/flightwall-api-discovery.md` §4, §7, §8.
 
 ---
 
 ## Overview
 
-Build a small Python service that reads Flighty Friends events from a dedicated Google Calendar, normalizes those events into flights, and safely reconciles them with the owner's FlightWall Mini. The service preserves manually tracked flights, temporarily switches the wall from Area Tracking Mode to Flight Tracking Mode while a managed Friend flight is active, and restores the prior area mode afterward.
+Build a small Python service that reads Flighty Friends events from a dedicated Google Calendar, normalizes those events into flights, and safely reconciles them with the owner's FlightWall Mini. The service preserves manually tracked flights. Tracked flights display alongside the owner's area tracking; the earlier plan to switch display modes was withdrawn once the capture showed no such mode exists.
 
-The calendar half is complete: a calendar-isolated service account reads the dedicated calendar, the parser turns real Flighty exports into stable flight records, and both fixture writers sanitize real data before it is committed. The FlightWall half has not started, because the commercial FlightWall app's backend contract is undocumented and must be observed from the owner's own device before any client is written.
+The calendar half is complete: a calendar-isolated service account reads the dedicated calendar, the parser turns real Flighty exports into stable flight records, and both fixture writers sanitize real data before it is committed. The FlightWall contract has been captured from the owner's own Mac and is simpler than assumed: one configuration document, no display mode, no per-entry identifiers. The client, reconciliation, and daemon units are unblocked.
 
 ---
 
@@ -51,10 +53,10 @@ Flighty already knows the owner's Friends' upcoming flights, but FlightWall requ
 - R4. Include every Friend exported to the dedicated calendar in v1. — **met (U2, U3)**
 - R5. Make unchanged sync runs idempotent. — pending (U6)
 - R6. Make polling and lookahead configurable; default to a two-minute poll and seven-day lookahead. — **met (U1)**; poll loop pending (U7)
-- R7. Persist explicit ownership of daemon-created FlightWall entries. — pending (U5, U6)
-- R8. Never modify or remove manually created FlightWall entries. — pending (U4 gate, U6)
-- R9. When FlightWall exposes authoritative activity and mode provenance, temporarily use Flight Tracking Mode for active managed flights, then restore Area Tracking Mode only while the daemon still owns that transition. — pending (U4 gate, U6); may become not applicable, see Open Questions
-- R10. Keep all overlapping active Friend flights available. — parser side met (U3); wall side pending (U4 gate, U6)
+- R7. Persist explicit ownership of daemon-created FlightWall entries. — pending (U5, U6); the wall offers no ownership signal, so this is entirely the daemon's journal
+- R8. Never modify or remove manually created FlightWall entries. — pending (U6); gate row 5 passes on the journal design
+- R9. ~~When FlightWall exposes authoritative activity and mode provenance, temporarily use Flight Tracking Mode…~~ — **withdrawn 2026-09-22**: the wall has no display mode; tracked flights show regardless of area settings
+- R10. Keep all overlapping active Friend flights available. — parser side met (U3); wall side pending (U6); five-entry cap confirmed
 - R11. Run unattended under systemd with restart behavior and actionable logs. — pending (U7)
 - R12. Keep Google and FlightWall credentials out of source control and logs. — Google side met (U1, U2); FlightWall side pending (U5)
 - R13. Provide an authoritative dry run when both sources are available and a clearly provisional, non-mutating local-intent report when FlightWall is unavailable. — pending (U6, U7)
@@ -62,7 +64,7 @@ Flighty already knows the owner's Friends' upcoming flights, but FlightWall requ
 
 **Origin actors:** A1 (owner), A2 (Flighty Friend), A3 (Flighty), A4 (Linux sync service), A5 (FlightWall Mini)
 
-**Origin flows:** F1 (sync an upcoming Friend flight), F2 (display an active Friend flight), F3 (return to normal area tracking)
+**Origin flows:** F1 (sync an upcoming Friend flight), F2 (display an active Friend flight — now satisfied by presence in `tracked_flights`; no mode switch), F3 (return to normal area tracking — reduces to removing the daemon's own stale entries)
 
 **Origin acceptance examples:** AE1 (calendar updates remain idempotent), AE2 (manual entries survive deletion), AE3 (overlapping flights and mode restoration), AE4 (dry-run and failure safety)
 
@@ -129,11 +131,12 @@ Later units must fit the conventions the first three units set:
 - **Bounded full-window reads instead of Calendar sync tokens:** A two-minute poll over the next seven days is small for a dedicated calendar. Page, event, field-length, and total-byte caps prevent a calendar writer from exhausting the daemon; exceeding any cap makes the cycle non-authoritative.
 - **Cycle-wide fail-closed parsing:** Any unrecognized or ambiguous event that could be a Flighty export makes the cycle non-authoritative for all wall mutations. The sanitized real export is the parser's contract fixture.
 - **FlightWall capability gate before contract-specific code:** The captured contract must prove complete list/mode reads, stable identifiers, simultaneous flights, authoritative activity, safe conditional deletion and mode provenance, recoverable uncertain mutations, capacity behavior, and reschedule semantics. A missing capability stops implementation and returns for a scope decision; it does not license a weaker guarantee.
-- **Capacity of five is a normal condition:** The vendor states the Mini displays up to five flights at a time. Reconciliation must plan for being at capacity without treating it as an error and without ever evicting an entry the daemon does not own.
+- **Capacity of five is a normal condition:** Confirmed: the app stops offering Add at five entries. Server behaviour when POSTing six is still untested (gate row 7). Reconciliation must plan for being at capacity without treating it as an error and without ever evicting an entry the daemon does not own.
 - **Isolated FlightWall adapter:** Endpoint, authentication, headers, payloads, identifiers, and error semantics come only from the owner's authorized capture. Production requires normal TLS verification and an allowlisted hostname; capture trust never reaches the daemon.
-- **SQLite ownership journal after contract evidence:** Generic storage scaffolding exists; remote IDs, pending operations, aggregated source references, and mode provenance are finalized only after the gate passes. Ambiguous remote entries are never adopted or deleted.
+- **Whole-document writes demand a read-modify-write discipline:** The wall has one configuration document and `POST` replaces all of it. The daemon must GET immediately before every POST, touch only `request_config.tracked_flights`, send every other byte back unchanged, and refuse to write if the document's key set or `display_config.model` differs from the captured fingerprint. This is the only defence against clobbering the owner's area, brightness, and sleep settings.
+- **Ownership journal is the sole ownership record:** The wall carries no actor, source, or per-entry ID. The daemon may remove a `flight_number` only if its own journal says the daemon added it; any `flight_number` present on first observation is manual forever. Ambiguous entries are never adopted or deleted.
 - **Plan-then-apply reconciliation:** Authoritative calendar and wall snapshots produce the executable plan. An offline dry run emits only a clearly labeled provisional calendar-and-journal intent report.
-- **Provenance-backed mode lease, if modes are exclusive:** Automatic restoration requires revision, actor, lease-token, or conditional-write evidence from FlightWall. If the capture shows area tracking and tracked flights coexist on one display, the lease is unnecessary and R9 collapses to "add and remove flights".
+- **No mode lease:** Withdrawn 2026-09-22. Tracked flights display regardless of area settings, so there is nothing to switch or restore.
 - **Privacy-safe logs and state:** Log event IDs, normalized flight identifiers, action types, and error classes. Never log credentials, reservation codes, seat numbers, full descriptions, raw captures, or Friend names by default.
 
 ---
@@ -148,16 +151,19 @@ Later units must fit the conventions the first three units set:
 - **What are the polling defaults?** 120 seconds and seven days, bounded to 30–86 400 seconds and 1–30 days in `config.py`.
 - **How should ambiguous parsing affect safety?** The whole cycle becomes non-authoritative and permits no wall mutation. Implemented in U3.
 - **Is there a documented FlightWall interface that avoids the capture?** No. The vendor offers no API, webhooks, or integrations; the OSS project is a different device with no app.
+- **Are area tracking and flight tracking mutually exclusive?** No — captured 2026-09-22. One document holds both; the app says tracked flights show regardless of area settings. R9 withdrawn, mode lease dropped.
+- **What identifier format does the wall accept?** The `flight_number` string as typed: `EI61`, `BA5`. No padding, no space. U3's designator maps directly.
+- **Does the wall distinguish manual entries from app-added ones?** No. Ownership rests entirely on the daemon's journal.
+- **What are the delete and mode-write preconditions?** None exist. Writes are whole-document, last-writer-wins; `version` did not change across two successful writes. Safe removal is read-modify-write with the journal as the filter.
 
-### Open — settled only by the U4 capture
+### Open — cheap to close, see discovery §8
 
-- **Are area tracking and flight tracking mutually exclusive?** The plan assumes yes. "Displays up to 5 flights at a time" suggests they may share one list. If they coexist, U6 drops the mode lease and R9 is not applicable.
-- **What identifier format does the wall accept?** The parser produces `VY8721`; the wall may want `VY 8721`, `VY8721`, or a callsign. Flighty does not zero-pad (`BA 5`).
-- **Does the wall distinguish manual entries from app-added ones?** If not, ownership rests entirely on the daemon's own journal of returned IDs.
-- **What are the delete and mode-write preconditions?** Conditional delete needs a stable ID and ideally a revision/ETag; mode restore needs actor or lease evidence. Absence of either blocks the related automation.
-- **What happens at capacity and after landing?** Rejection, eviction, or silent drop at six; hold, drop, or error after landing.
-- **Certificate pinning:** If the app rejects a user CA, follow §5 of the discovery document: inspect the owned APK, then ask the vendor, then return for a scope decision. Never patch TLS.
-- **Contract drift, rate limits, and token lifetime:** Derive from captured responses. Unknown fingerprints force read-only mode until recapture.
+- **Server behaviour at six entries** (gate row 7). Blocks adding when the wall is full.
+- **Recovery after an interrupted POST** (gate row 6). Blocks automatic removal.
+- **Is `version` decorative?** POST with a wrong value and see.
+- **Post-landing behaviour.** "Will auto-remove" and tracking history are visible in the app but not in `/configuration`; the daemon may find its entries gone without having removed them.
+- **Key lifetime and extraction.** The daemon needs the per-user `x-api-key` and `x-user-id` from the owner's signed-in app. Whether they survive sign-out, and where they live in the app container, is unknown.
+- **Contract drift and rate limits:** `display_config.model`, the top-level key set, and the `tracked_flights[]` key set are the fingerprint. Unknown fingerprints force read-only mode until recapture.
 
 ---
 
@@ -230,21 +236,27 @@ flowchart TB
 
 Each poll produces one of three outcomes:
 
-1. **Authoritative snapshot:** Every bounded calendar page plus the complete FlightWall tracking list, mode state, and required provenance reads succeed and validate against the captured contract. The service may plan mutations.
-2. **Non-authoritative snapshot:** Any source read, parser authority check, bound, authentication step, contract fingerprint, or required provenance check fails. The service logs the failure and performs zero FlightWall mutations.
+1. **Authoritative snapshot:** Every bounded calendar page plus one `200` `GET /configuration` whose key set and `display_config.model` match the captured fingerprint. The service may plan mutations.
+2. **Non-authoritative snapshot:** Any source read, parser authority check, bound, authentication step, or fingerprint check fails. The service logs the failure and performs zero FlightWall mutations.
 3. **Provisional offline dry run:** Calendar and journal data describe local intent, but every action that depends on current FlightWall state is labeled unknown and cannot be applied.
 
-Mode lifecycle — **applies only if U4 shows the two modes are mutually exclusive**:
+Write path — the only mutation the daemon ever makes:
 
 ```mermaid
-stateDiagram-v2
-    [*] --> Area
-    Area --> TrackingOwned: managed flight becomes active
-    TrackingOwned --> Area: no managed flight active and lease intact
-    TrackingOwned --> ManualOverride: mode provenance changes outside daemon lease
-    ManualOverride --> ManualOverride: daemon observes but does not fight user
-    ManualOverride --> Area: FlightWall later reports normal area state
+sequenceDiagram
+    participant D as Daemon
+    participant W as api.theflightwall.com
+    D->>W: GET /configuration
+    W-->>D: document (version, display_config, request_config)
+    D->>D: fingerprint check; edit only request_config.tracked_flights
+    D->>D: journal pending intent
+    D->>W: POST /configuration (whole document + userId)
+    W-->>D: document + meta
+    D->>W: GET /configuration
+    D->>D: resolve intent against fresh read
 ```
+
+The GET→POST window is a last-writer-wins race with the owner's app. It is unavoidable under this contract; keeping it short and re-reading after every write is the mitigation.
 
 ---
 
@@ -255,7 +267,7 @@ flowchart TB
     U1[U1 Foundation ✓]
     U2[U2 Calendar intake ✓]
     U3[U3 Flighty parser ✓]
-    U4[U4 FlightWall capture — owner]
+    U4[U4 FlightWall capture — mostly done]
     U5[U5 FlightWall client]
     U6[U6 Reconciliation engine]
     U7[U7 Daemon and operations]
@@ -285,115 +297,115 @@ flowchart TB
 
 ---
 
-- [ ] U4. **Capture and document the authorized FlightWall contract** — **owner action outstanding**
+- [ ] U4. **Capture and document the authorized FlightWall contract** — **contract captured 2026-09-22; four cheap sequences open**
 
-**Goal:** Observe the exact commercial-app requests needed to list, add, remove, and display tracked flights, and prove the capability gate, before any code targets the backend.
+**Goal:** Observe the exact commercial-app requests needed to list, add, and remove tracked flights, and prove the capability gate, before any code targets the backend.
 
-**Requirements:** R7, R8, R9, R10, R12, R14; F2, F3
+**Requirements:** R7, R8, R10, R12, R14; F2, F3 (R9 withdrawn)
 
-**Dependencies:** None on code. Requires the owner's Android device or an owned emulator, the owner's FlightWall account and wall, and about 90 minutes.
+**Landed (`d92d56c`, `388078c`, `a4ffe0c`, `4c43347`, and the capture commit):**
+- Capture ran from `TheFlightWall.app` on the owner's Mac through `mise run capture:start` / `capture:stop`, driven via System Events. No pinning; zero TLS errors.
+- Fixtures: `tests/fixtures/flightwall/{get-configuration,post-configuration-add,post-configuration-remove,get-feature-flags}.json`, each with a §6 provenance row, scanned against the raw HAR for both API keys, the user id, and home coordinates: zero hits.
+- Sanitizer gap found and fixed: the POST body's opaque `userId` survived the first pass; `userid`/`user_id`/`device_id`/`account_id` added to `SENSITIVE_BODY_KEYS` with a regression test.
+- Findings written to `docs/flightwall-api-discovery.md` §1, §3, §4, §6, §7.
 
-**Already done (`d92d56c`, `388078c`):**
-- `sanitize-capture` (`capture.py`) turns a HAR export into one fixture per request: every header and query value dropped, body values redacted by key name and by pattern via `redaction.py`, oversized or non-JSON bodies reduced to size and MIME type, `--host` allowlist with host discovery when nothing matches.
-- `docs/flightwall-api-discovery.md`: vendor baseline (§1), safety rules and setup/teardown (§2), fourteen controlled sequences (§3), empty findings tables (§4), pinning fallback (§5), provenance table (§6), ten-row capability gate (§7).
-- `tests/fixtures/flightwall/README.md`: what the sanitizer removes, what may never be committed, target file names.
-- Confirmed without a capture: there is no public API; the OSS project is a different device; the Mini displays up to five flights at a time.
+**What the capture proved** (details and fixtures in the discovery document):
+- One document, `GET`/`POST /configuration`, auth by `x-api-key` + `x-user-id` headers. Tracked flights are `request_config.tracked_flights[] = {flight_number, created_at, show_distance_travelled, show_metrics}`, at most five, unpaginated.
+- Add and remove are both a whole-document `POST`. `version` did not change across two writes; no ETag. **Last-writer-wins.**
+- No display mode. No per-entry ID, actor, or source. `flight_number` is stored as typed.
+- Fingerprint: `display_config.model == "mini-v1"`, the top-level key set, the `tracked_flights[]` key set.
 
-**Remaining — owner:**
-1. Follow §2 setup in the discovery document. Record the app version and platform immediately.
-2. Record the fourteen sequences in §3 separately. Sequences 9 (capacity) and 12 (interrupted mutation) are the likeliest gate failures; do not skip them.
-3. Export the HAR to `captures/` and run `sanitize-capture` once without `--host` to list hosts, then again with the FlightWall hosts and one `--redact-term` per Friend name and device label.
-4. Read every produced fixture by hand. Delete the raw HAR and proxy flows, remove the CA from the device, sign out, rotate the password if a login was captured.
-5. Fill §4, §6, and §7 of the discovery document from observed requests only. Rename fixtures to the operation they prove and commit them.
+**Gate verdict:** rows 1–5, 8, 10 pass (several as "reduced": the contract is simpler than the gate assumed). Row 9 not applicable. **Rows 6 and 7 open** — U5 may start; U6 must not enable automatic removal until row 6 closes, nor add a sixth flight until row 7 does.
 
-**Gate outcome:** U5 starts only when all ten §7 rows read **pass**. Any failure returns to the owner for a scope decision (manual-entry-only workflow, or keep U1–U3 as a Flighty normalisation tool); it does not license a weaker manual-entry or mode-safety guarantee.
-
-**Verification:**
-- A sanitized, replay-safe fixture exists for each required operation, each with a provenance row.
-- §4 answers the four design questions in §1: mode exclusivity, post-landing behaviour, manual/app distinction, identifier stability.
-- No committed or retained artifact contains a usable token, device secret, CA key, personal location, or account identifier — re-checked by hand, not by the sanitizer's tests.
+**Remaining — each a few minutes with the proxy up (discovery §8):**
+1. Sequence 9: POST a six-entry document; record status and body. Closes row 7.
+2. Sequence 12: interrupt a POST before the response, GET, compare. Closes row 6.
+3. POST with a wrong `version` to confirm it is decorative.
+4. Sequence 13: watch `EI61` land; diff `/configuration` before and after.
+5. Sequence 14: re-run `GET /configuration` with the captured key pair after sign-out and after 24 h.
+6. Locate the per-user `x-api-key` and `x-user-id` in the app container and document the extraction step for the daemon's credential file.
 
 ---
 
 - [ ] U5. **Implement the defensive FlightWall client**
 
-**Goal:** Encapsulate the captured contract behind a validated client that exposes only the operations reconciliation needs.
+**Goal:** Encapsulate the captured contract behind a validated client that exposes read-configuration and replace-tracked-flights, and nothing else.
 
-**Requirements:** R5, R7, R8, R9, R10, R12, R14; F2, F3
+**Requirements:** R5, R7, R8, R10, R12, R14; F2, F3
 
-**Dependencies:** U4 gate passed.
+**Dependencies:** U4 gate rows 1–5, 8, 10 (passed). Rows 6–7 gate U6 behaviour, not this unit.
 
 **Files:**
 - Create: `src/flighty_wall/flightwall.py`
-- Modify: `src/flighty_wall/config.py` — add a `[flightwall]` table: allowlisted host, credential file path, request timeout; probed with `require_private_file` like the Google key
+- Modify: `src/flighty_wall/config.py` — add a `[flightwall]` table: `host` (allowlisted, default `api.theflightwall.com`), `credentials_path` (a `0600` file holding the per-user `x-api-key` and `x-user-id`), `timeout_seconds`; probed with `require_private_file` like the Google key
 - Modify: `config.example.toml`
-- Modify: `src/flighty_wall/state.py` — remote ownership, aggregated source references, pending operations, mode provenance (only fields U4 proved)
-- Modify: `src/flighty_wall/cli.py` — add `probe-wall`, a read-only authoritative snapshot command
+- Modify: `src/flighty_wall/state.py` — `owned_flights(flight_number, first_added_at, source_keys)` and `pending_writes(intent, document_hash, started_at)`; nothing for mode
+- Modify: `src/flighty_wall/cli.py` — add `probe-wall`, a read-only authoritative snapshot command printing the tracked list and fingerprint
 - Modify: `pyproject.toml` — add `httpx`
 - Test: `tests/test_flightwall.py`, `tests/test_state.py`, `tests/test_cli.py`
 
 **Approach:**
-- `WallSnapshot` is authoritative only after complete pagination plus successful mode, activity, provenance, and contract-fingerprint validation — the same shape as `calendar.Snapshot`.
-- Typed add, conditional remove-by-exact-ID/revision, and conditional mode operations exist only for capabilities U4 proved. If modes coexist, there is no mode operation.
-- Designator formatting (`VY8721` vs `VY 8721` vs callsign) is a single explicit mapping from the U3 designator, taken from §4.2.
-- HTTPS with normal certificate validation, allowlisted captured hostname, no credential forwarding across redirects. Capture CA and `verify=False` are rejected at config load.
-- Bounded timeouts; retries only for reads and demonstrably idempotent mutations. A mutation with unknown outcome is surfaced as unknown, never retried blindly.
-- Distinct errors for authentication, authorization, rate limit, transport, and contract drift. An unknown fingerprint forces read-only mode.
+- `WallSnapshot` is authoritative only when `GET /configuration` returns `200`, parses, and matches the fingerprint (`display_config.model`, top-level key set, `tracked_flights[]` key set). Same shape as `calendar.Snapshot`: authority is explicit, never inferred.
+- Exactly two operations: `read() -> WallSnapshot` and `replace_tracked_flights(snapshot, flights) -> WallSnapshot`. The second takes the snapshot it was planned against, mutates only `request_config.tracked_flights` in a copy of that snapshot's raw document, adds `userId`, POSTs, and returns the re-read. Every other byte of the document is passed through untouched — the client never constructs a document from its own model.
+- New entries are `{flight_number, created_at: now (RFC3339 Z), show_distance_travelled: true, show_metrics: true}` — the shape the app writes. The designator from U3 maps 1:1 onto `flight_number`.
+- Refuse to POST more than five entries until gate row 7 says what the server does with six.
+- HTTPS with normal certificate validation, allowlisted host, no redirects followed. Capture CA and `verify=False` are rejected at config load.
+- Bounded timeouts. GET may retry; POST never retries blindly — an unknown outcome is returned as unknown for U6 to resolve by re-reading.
+- Distinct errors for 401/403 (bad key pair), 429, 5xx, transport, schema/fingerprint drift. Drift forces read-only mode.
 
 **Test scenarios:**
-- List responses distinguish manual entries from daemon-owned IDs without mutating either.
-- Add, remove-by-exact-ID, and mode responses produce typed outcomes matching fixtures.
-- Duplicate-add or existing-equivalent response is explicit and never grants ownership of a manual entry.
-- Timeout after a mutation yields unknown outcome; 401/403 yields reauthentication; 429/5xx yields retryable with delay metadata.
-- Failure on page two, failed mode/activity read, or missing provenance makes the snapshot non-authoritative and permits zero mutating calls.
-- Missing/renamed required fields or unknown fingerprint forces read-only handling.
-- Cross-host redirects, disabled TLS validation, and capture-CA configuration are rejected; logging redacts authorization, device credentials, location, and personal fields.
+- Happy path: `get-configuration.json` → authoritative snapshot with `['EI61']`, fingerprint `mini-v1`.
+- Happy path: replace against that snapshot with `['EI61','BA5']` produces a POST body byte-identical to `post-configuration-add.json`'s request apart from `created_at` and `userId`; `display_config` and `radius_request` are unchanged.
+- Happy path: replace with `['EI61']` matches `post-configuration-remove.json`.
+- Edge case: replace with six entries raises before any request is made.
+- Error path: `display_config.model != "mini-v1"`, a missing top-level key, or an extra `tracked_flights[]` key → non-authoritative, and `replace` refuses.
+- Error path: timeout after POST → unknown outcome, no retry, no second POST.
+- Error path: 401/403 → credential error naming the header, never its value; 429/5xx → retryable with delay metadata.
+- Security: a redirect to another host is not followed; `verify=False` or a CA path in config fails at load; logs never contain `x-api-key`, `x-user-id`, `userId`, or coordinates.
 
 **Verification:**
-- All captured fixtures pass without network access, including incomplete-pagination and drift fixtures.
+- All four committed fixtures pass without network access, plus synthetic drift and six-entry fixtures.
 - `probe-wall` produces one authoritative snapshot against the real wall without changing it.
-- Mutating probes require an explicit operator flag and report exact before/after state.
+- A mutating probe exists only behind an explicit flag and prints the exact before/after `tracked_flights`.
 
 ---
 
-- [ ] U6. **Build ownership-safe reconciliation and mode leasing**
+- [ ] U6. **Build ownership-safe reconciliation**
 
-**Goal:** Compute and apply idempotent calendar-to-wall changes while preserving manual entries and user control.
+**Goal:** Compute and apply idempotent calendar-to-wall changes while preserving manual entries.
 
-**Requirements:** R3, R4, R5, R6, R7, R8, R9, R10, R13, R14; F1, F2, F3; AE1–AE4
+**Requirements:** R3, R4, R5, R6, R7, R8, R10, R13, R14; F1, F2, F3; AE1, AE2, AE4 (AE3 reduced: overlap without mode)
 
-**Dependencies:** U5
+**Dependencies:** U5. Automatic removal additionally waits on U4 gate row 6; adding when the wall holds five waits on row 7.
 
 **Files:**
 - Create: `src/flighty_wall/reconcile.py`
 - Test: `tests/test_reconcile.py`
 
 **Approach:**
-- One authoritative calendar snapshot plus owned state plus one authoritative `WallSnapshot` yield a deterministic ordered action plan. Any non-authoritative input permits zero wall mutation.
-- Consume U3's flight key as-is: aggregate all source event IDs per key; add once; retain while any source reference remains; remove only an exact owned ID using the captured precondition. A day change is a new key and therefore add-new-then-remove-old, in that order.
-- Persist pending mutation intent before network calls; resolve it from a fresh `WallSnapshot` after success, timeout, or restart.
-- An equivalent manual flight suppresses a duplicate add but is never adopted; the decision appears in dry-run and log output.
-- At capacity (five), add only after a conclusively stale owned entry is removed; never evict a manual entry. Report unplaceable flights rather than forcing them.
-- Use FlightWall's authoritative per-flight active status for mode decisions. No local activity windows.
-- **If modes are exclusive:** acquire a lease only when the daemon changes Area to Tracking and receives provenance; restore Area only by conditional mutation against that provenance; any unverifiable or manual change releases the lease. **If modes coexist:** no mode logic at all.
-- Authoritative dry-run and normal mode share the planner. With FlightWall unavailable, dry-run emits a separate provisional local-intent report with every remote-dependent action marked unknown.
+- One authoritative calendar snapshot plus the ownership journal plus one authoritative `WallSnapshot` yield a deterministic plan: the desired `tracked_flights` list. Any non-authoritative input yields no plan.
+- Ownership is the journal, full stop. On the first authoritative wall read, every `flight_number` present is recorded as manual. Thereafter a `flight_number` is removable only if the journal says the daemon added it and no calendar source still wants it. A manual entry is never removed, even if a Friend later flies the same number — the daemon adopts nothing.
+- Desired list = manual entries (unchanged) + daemon-owned entries still wanted + new wanted flights, in that order, capped at five. If the cap is hit, add nothing new, remove only conclusively stale owned entries, and report the unplaceable flights. Never evict a manual entry.
+- Consume U3's key: a same-day time change is a no-op on the wall; a day change is remove-old + add-new in one POST (a single document write, so no intermediate state).
+- Journal pending intent (document hash, desired list) before the POST; resolve it against the re-read the client returns. On restart with an unresolved intent, re-read and re-plan — POST is idempotent on content, so a lost response is recovered by comparing, not retrying.
+- If the wall's list already equals the desired list, do not POST. Ten identical cycles must make zero writes.
+- Authoritative dry-run and normal mode share the planner. With the wall unavailable, dry-run emits a provisional local-intent report with every remote-dependent action marked unknown.
 
 **Test scenarios:**
-- F1/AE1: repeated identical snapshots produce one add then nothing; a gate-only update produces no duplicate.
-- F3/AE2: deleting a calendar event removes its exact owned entry and leaves a manual entry unchanged.
-- F2/AE3: two overlapping active flights stay tracked; Area restores only after both inactive and provenance matches (or the scenario is not applicable if modes coexist).
-- AE4: authoritative dry-run emits the executable plan without mutation; wall-outage dry-run emits provisional intent and changes no state.
-- Any partial read, ambiguous event, incomplete pagination, failed mode read, bound breach, or drift invokes no mutation.
-- Timeout-after-add then restart resolves the pending intent from wall state without duplicating and adopts ownership only when identity is unambiguous.
-- Two Friends or a codeshare on one remote flight: removing one source leaves the entry while another remains.
-- User changes mode away-and-back between polls: provenance mismatch releases the lease.
-- Reschedule within a day updates one entry; to another day adds then removes.
-- Full capacity: only a proven stale owned deletion frees a slot; no manual eviction; excess flights reported.
-- One failed mutation stops dependent actions and records the incomplete operation.
+- F1/AE1: repeated identical snapshots produce one POST then none; a gate-only calendar update produces no POST.
+- F3/AE2: a wall with manual `EI61` and daemon-added `BA5`; deleting BA5's calendar event yields a POST with `['EI61']`. Deleting a hypothetical event for `EI61` yields no POST.
+- AE3 (reduced): two Friends' flights overlapping yield both in `tracked_flights`; both removed only when both sources are gone.
+- AE4: authoritative dry-run prints the desired list without POSTing; wall-outage dry-run prints provisional intent and changes no state.
+- Error path: non-authoritative calendar, ambiguous event, fingerprint drift, or non-authoritative wall → no POST, journal untouched.
+- Recovery: unresolved pending intent at startup → re-read; if the wall already matches, resolve without POST; if not, re-plan from scratch.
+- Edge case: a Friend flies a number that is a manual entry → suppress the add, never adopt, never remove; visible in dry-run.
+- Edge case: wall at five with one stale owned entry → one POST that swaps it; wall at five with no stale owned entry → no POST, unplaceable flights reported.
+- Edge case: day change → one POST containing new and not old.
+- Edge case: first-ever wall read records all present entries as manual.
 
 **Verification:**
-- The matrix proves idempotency, ownership isolation, overlap handling, capacity handling, dry-run parity, and crash recovery.
-- No path can issue a delete for a remote ID absent from durable ownership state.
+- The matrix proves idempotency, ownership isolation, capacity handling, dry-run parity, and restart recovery.
+- No path can produce a desired list that omits a `flight_number` the journal marks manual.
 
 ---
 
@@ -442,7 +454,7 @@ flowchart TB
 
 - **Interaction graph:** Flighty updates Google Calendar; the service reads and parses events; reconciliation joins calendar state, SQLite ownership, wall state, and time; the FlightWall adapter performs mutations; systemd owns process lifecycle.
 - **Error propagation:** Any incomplete calendar or wall read, parser ambiguity, bound breach, failed provenance check, or unknown contract fingerprint becomes non-authoritative. The service logs and retries later but performs zero wall mutation. Mutation uncertainty is journaled before further changes.
-- **State lifecycle risks:** Crashes between remote mutation and local commit, duplicate source events for one flight, conditional-delete races, remote ID reuse, stale mode provenance, and the five-flight cap. Aggregated source references, pending intents, contract-backed preconditions, and authoritative re-reads address these conservatively.
+- **State lifecycle risks:** Crashes between remote POST and local commit, duplicate source events for one flight, the GET→POST last-writer-wins window against the owner's app, and the five-flight cap. Journal-first pending intents, content-idempotent POSTs resolved by re-reading, and a desired-list planner that never drops manual entries address these conservatively.
 - **API surface parity:** Inspection, probe, dry-run, one-shot apply, and daemon mode share configuration, parser, planner, state, and client boundaries.
 - **Integration coverage:** Fixture-backed end-to-end tests prove cross-layer flows; one controlled live validation per external contract keeps routine tests offline.
 - **Unchanged invariants:** Flighty remains the human-facing source of Friends and flights. FlightWall firmware, data providers, device enrollment, manually tracked entries, and unrelated settings remain untouched.
@@ -453,16 +465,17 @@ flowchart TB
 
 | Risk | Mitigation |
 | --- | --- |
-| FlightWall changes its undocumented backend | Validate an allowlisted contract fingerprint; unknown versions force read-only mode until recapture and fixture validation. |
-| FlightWall lacks a requirement-critical capability | U4 is a hard gate; stop and ask the owner to reduce scope rather than weaken manual-entry or mode-safety guarantees. |
-| Area and tracking modes turn out to coexist | Design simplifies: U6 drops the lease, R9 becomes not applicable. Record the finding in §4 before U5 starts. |
+| FlightWall changes its undocumented backend | Fingerprint `display_config.model`, top-level keys, and `tracked_flights[]` keys on every read; drift forces read-only mode until recapture. |
+| FlightWall lacks a requirement-critical capability | Gate rows 6–7 still open. U6 keeps automatic removal and sixth-flight adds disabled until they close; nothing else is blocked. |
+| Owner edits the app during the daemon's GET→POST window | Last-writer-wins is inherent to the contract. Keep the window to one read and one write, re-read after every POST, and treat any unexpected difference as a reason to re-plan rather than retry. |
+| Daemon clobbers the owner's area, brightness, or sleep settings | The client passes every non-`tracked_flights` byte of the fetched document back unchanged and never builds a document from its own model. Tested byte-for-byte against the captured POST bodies. |
 | HTTPS interception leaks credentials or weakens production TLS | Ephemeral restricted capture environment, raw flows deleted, credentials rotated, CA removed; capture trust and disabled verification rejected at config load. |
 | Flighty changes calendar event formatting | Characterization fixtures, cycle-wide fail-closed parsing, redacted diagnostics, `mise run fixture:calendar` to refresh. |
 | Calendar or wall outage appears as an empty source | Authority is explicit on every snapshot; all non-authoritative inputs cause zero wall mutation. |
 | Calendar writer submits hostile or excessive events | Private calendar ACL, calendar-isolated service account, candidate-shape validation, page/event/field/byte caps. |
 | Flighty-to-Google export is delayed or stale | Observation time and event `updated` reported separately; API success never claims Flighty freshness. |
-| Crash after remote mutation but before local commit | Persist pending intent first, then resolve against a fresh authoritative `WallSnapshot` before retrying. |
-| Manual app changes race the daemon | Require conditional delete and mode provenance; if unavailable, block those behaviors instead of check-then-act. |
+| Crash after remote POST but before local commit | Journal intent first; on restart re-read and compare — POST is idempotent on content, so recovery is a diff, not a retry. |
+| Manual app changes race the daemon | See the GET→POST row. There is no conditional write to lean on; the mitigation is a short window and a re-read. |
 | Wall is at its five-flight cap | Plan around capacity; remove only conclusively stale owned entries; never evict a manual entry; report unplaceable flights. |
 | Credentials or travel state leak from disk or backup | `0700` directories, `0600` files/WAL/SHM, atomic writes, redacted logs, encrypted backups, retention, secure deletion guidance. |
 | Polling triggers rate limits | Seven-day bounded calendar query, mutate only on change, honor server retry guidance, configurable interval. |
@@ -474,7 +487,7 @@ flowchart TB
 - A new Friend flight exported by Flighty appears in the next successful calendar snapshot and is added to FlightWall once.
 - Ten unchanged sync cycles produce zero FlightWall mutations after initial convergence.
 - Calendar deletion removes only the exact daemon-owned entry; manual entries remain unchanged in all automated tests.
-- Overlapping Friends' flights keep Flight Tracking Mode active until FlightWall reports the final managed flight inactive and the daemon's mode provenance remains valid — or, if modes coexist, both flights are simply present until inactive.
+- Overlapping Friends' flights are both present in `tracked_flights` until each becomes inactive; there is no display mode to restore.
 - Simulated Google, FlightWall, and process failures never trigger broad deletion or loss of ownership state.
 - A clean Linux host reaches a successful dry run by following `README.md` without reading source code.
 
@@ -482,10 +495,10 @@ flowchart TB
 
 ## Documentation / Operational Notes
 
-- `README.md` carries all setup: Google calendar and service account (done), Flighty export (done), fixture capture (done), FlightWall capture (done, pending the owner running it), and — from U7 — daemon installation, first dry run, controlled first apply, credential rotation, backup, troubleshooting.
-- `docs/flightwall-api-discovery.md` must record app version and capture date per fixture so future breakage can be compared with the known contract.
+- `README.md` carries all setup: Google calendar and service account (done), Flighty export (done), fixture capture (done), FlightWall capture (done from the Mac; four short sequences open), and — from U7 — daemon installation, first dry run, controlled first apply, credential rotation, backup, troubleshooting.
+- `docs/flightwall-api-discovery.md` records app version and capture date per fixture so future breakage can be compared with the known contract; §8 lists what is still to capture.
 - Back up SQLite state only to encrypted, access-controlled storage; include WAL/SHM consistency, retention, restoration, and secure deletion procedures.
-- First deployment sequence: pass the FlightWall capability gate → delete raw captures and rotate captured credentials → fixture tests → `probe-wall` read-only → review an authoritative dry run → one controlled apply → enable the daemon.
+- First deployment sequence: close gate rows 6–7 → extract the key pair into a `0600` credentials file → `capture:stop --purge` → fixture tests → `probe-wall` read-only → review an authoritative dry run → one controlled apply → enable the daemon.
 
 ---
 

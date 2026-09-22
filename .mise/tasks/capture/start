@@ -32,11 +32,12 @@ if ! security find-certificate -c mitmproxy "$KEYCHAIN" >/dev/null 2>&1; then
 fi
 
 # iOS apps on macOS honour the system proxy; there is no per-app setting.
-echo "$SERVICE proxy -> 127.0.0.1:$PORT"
-networksetup -setwebproxy "$SERVICE" 127.0.0.1 "$PORT"
-networksetup -setsecurewebproxy "$SERVICE" 127.0.0.1 "$PORT"
-networksetup -setwebproxystate "$SERVICE" on
-networksetup -setsecurewebproxystate "$SERVICE" on
+# networksetup needs admin rights for proxy changes, hence sudo (you are prompted).
+echo "$SERVICE proxy -> 127.0.0.1:$PORT (sudo)"
+sudo networksetup -setwebproxy "$SERVICE" 127.0.0.1 "$PORT"
+sudo networksetup -setsecurewebproxy "$SERVICE" 127.0.0.1 "$PORT"
+sudo networksetup -setwebproxystate "$SERVICE" on
+sudo networksetup -setsecurewebproxystate "$SERVICE" on
 
 cat <<EOF
 

@@ -1,33 +1,43 @@
 # FlightWall fixtures
 
-**This directory is empty on purpose.** Every fixture here has to come from a real
-capture of the FlightWall app talking to its backend, taken by the owner of the wall on
-the owner's own device and account. Nothing in this repository knows what the real
-requests look like, so no fixture may be written by hand or guessed from a plausible REST
-shape — an invented fixture would let U5 build a client against a contract that does not
-exist, and the first real request would fail on the wall rather than in a test.
+Every fixture here comes from a real, authorized capture of `TheFlightWall.app` (iOS 3.0.0,
+running on the owner's Apple Silicon Mac) talking to `api.theflightwall.com`, taken on
+2026-09-22 with the owner's own account and wall. Nothing may be written by hand or guessed
+from a plausible REST shape — an invented fixture would let U5 build a client against a
+contract that does not exist, and the first real request would fail on the wall rather than
+in a test.
 
-See `docs/flightwall-api-discovery.md` for the capture protocol. Run it, then produce the
-fixtures with the command below.
+See `docs/flightwall-api-discovery.md` for the contract, the capture protocol, and what is
+still open.
+
+## What is here
+
+| File | Proves |
+| --- | --- |
+| `get-configuration.json` | An authoritative read: the whole configuration document, `tracked_flights = [EI61]`, `version = 2` |
+| `post-configuration-add.json` | Adding one flight: the full document with `[EI61, BA5]` POSTed, `200`, echoed with `meta` |
+| `post-configuration-remove.json` | Removing one flight: the full document with `[EI61]` POSTed, `200`. Same call as add |
+| `get-feature-flags.json` | The app-level pre-flight read: `individual_flight_tracking` enabled |
+
+There is no `list-empty`, `mode-*`, or `remove-already-gone` fixture, because the contract
+has no separate list call, no mode, and no per-entry delete: the daemon GETs the document,
+edits `request_config.tracked_flights`, and POSTs it back.
+
+Still to capture (see the discovery document §8): the server's response to a six-entry
+document, an interrupted POST, a stale `version`, and post-landing behaviour.
 
 ## Producing fixtures
 
 ```bash
-uv run flighty-wall sanitize-capture \
-  --input captures/flightwall.har \
-  --output-dir tests/fixtures/flightwall \
-  --host api.example-flightwall-host \
-  --redact-term "Friend Name" \
-  --redact-term "My Wall"
+mise run capture:start          # proxy + CA; Ctrl-C writes captures/flightwall.har
+# ... drive the app ...
+mise run capture:stop           # proxy off, CA removed
+mise run capture:sanitize -- --host api.theflightwall.com
 ```
 
-To discover which hosts to allow, run it once with no `--host`: if nothing matches a given
-allowlist, the command exits 1 and prints every host the capture touched. Pass one
-`--redact-term` per Friend name, device label, or other literal string that only you can
-recognise. Then rename each numbered output file to the operation it proves (see naming
-below) and delete the entries that are not needed.
-
-`captures/` is gitignored. Delete the raw HAR as soon as the fixtures are written.
+Run `capture:sanitize` once with no `--host` to list every host the capture touched. Then
+rename each numbered output file to the operation it proves, read it by hand, and delete the
+raw capture with `mise run capture:stop --purge`.
 
 ## What the sanitizer removes
 
@@ -35,50 +45,30 @@ below) and delete the entries that are not needed.
   unrecognised authorization scheme is exactly the case a pattern-based scrubber misses,
   so nothing is trusted to a pattern here.
 - **Body values by key**, for keys whose contents are never safe: tokens, secrets,
-  passwords, signatures, session and device identifiers, email, phone, serial numbers, and
-  latitude/longitude. The key name stays so the contract shape is still readable; the value
-  becomes `<redacted>`. Nested structure under such a key is discarded too.
+  passwords, signatures, session / device / user / account identifiers, email, phone, serial
+  numbers, and latitude/longitude. The key stays so the contract shape is readable; the
+  value becomes `<redacted>`.
 - **Body and path values by pattern**: emails, URIs of any scheme, JWTs, UUIDs,
   `bearer`/`token`/`secret`-style credentials, opaque tokens of 32 characters or more,
   booking codes, seat numbers, and coordinates with four or more decimal places.
 - **Bodies that are oversized or not JSON** are reduced to a size and MIME type.
 
-Caller-supplied `--redact-term` values are the only defence against a Friend's name, so
-supply them. The sanitizer cannot recognise a name on its own.
+The 2026-09-22 capture found one gap: the POST body's `userId` (a 29-character opaque
+string) survived the first pass. `userid` / `user_id` / `device_id` / `account_id` were added
+to the key list with a regression test, and the fixtures were regenerated and re-scanned.
 
 ## What must never appear in a committed fixture
 
-- A usable token, session, credential, or authorization header value of any scheme
-- A device identifier, serial number, MAC address, or push token
-- Your home coordinates, or any coordinate precise enough to locate a person
+- The `x-api-key` or `x-user-id` header values, or the `userId` body value
+- `radius_request.id`, `latitude`, or `longitude` — the owner's home
+- A device serial, MAC address, or push token
 - A Friend's name, email address, or phone number
-- An account identifier, subscription ID, or billing detail
-- Anything from the interception CA, including its key or fingerprint
+- Anything from the interception CA
 
-Read every file before committing. The sanitizer is deliberately over-broad, but it is a
-second line of defence, not the first.
-
-## Naming
-
-One file per proven operation, named for the operation rather than the capture order:
-
-| File | Proves |
-| --- | --- |
-| `list-empty.json` | An authoritative read of a wall with no tracked flights |
-| `list-with-manual-and-tracked.json` | A read distinguishing a manually added flight from a synced one |
-| `add-success.json` | Adding one flight, and the identifier the wall returns for it |
-| `remove-success.json` | Removing exactly one flight by its identifier |
-| `mode-area.json` | Reading and setting area tracking mode |
-| `mode-tracking.json` | Reading and setting flight tracking mode |
-
-Add further files as the capture requires; error responses (`add-conflict.json`,
-`add-at-capacity.json`, `remove-already-gone.json`) are as valuable as successes, because
-U5 has to handle them without guessing.
+The committed fixtures were scanned against the raw HAR for every one of these: zero hits.
 
 ## Provenance
 
-Every fixture needs a matching row in the provenance table in
-`docs/flightwall-api-discovery.md`, recording the capture date, the app version and
-platform, the firmware version if the app reports one, and which fields were removed
-beyond the sanitizer's defaults. A fixture with no provenance row cannot be trusted later,
-because there is no way to tell whether the contract has since changed.
+Every fixture has a row in §6 of `docs/flightwall-api-discovery.md` recording capture date,
+app version, platform, and which fields were removed beyond the sanitizer's defaults. A
+fixture with no provenance row cannot be trusted later.

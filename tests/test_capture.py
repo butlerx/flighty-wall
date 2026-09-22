@@ -145,6 +145,27 @@ def test_body_secrets_are_scrubbed_by_pattern_and_by_key() -> None:
     assert "expires_in" in rendered
 
 
+def test_account_identifiers_are_redacted_by_key_regardless_of_case() -> None:
+    # Seen in the real FlightWall capture: a short opaque ``userId`` in the POST body
+    # that no length- or charset-based pattern would catch.
+    entries = sanitize_har(
+        har(
+            har_entry(
+                method="POST",
+                request_body={"userId": "fw_ios_abc123XYZ", "version": 2},
+                response_body={"device_id": "PY68Q8", "ok": True},
+            )
+        )
+    )
+
+    rendered = repr(entries[0].payload)
+    assert "fw_ios_abc123XYZ" not in rendered
+    assert "PY68Q8" not in rendered
+    assert "userId" in rendered
+    assert "device_id" in rendered
+    assert "'version': 2" in rendered
+
+
 def test_home_coordinates_are_scrubbed_from_area_mode_bodies() -> None:
     entries = sanitize_har(
         har(har_entry(response_body={"mode": "area", "lat": 53.349805, "radius_km": 25.0}))

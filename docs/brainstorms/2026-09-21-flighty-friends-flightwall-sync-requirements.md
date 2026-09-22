@@ -33,14 +33,14 @@ Flighty already contains current and upcoming flights for the owner's Flighty Fr
 - F2. Display an active Friend flight
   - **Trigger:** FlightWall reports that a daemon-managed Friend flight is active.
   - **Actors:** A4, A5
-  - **Steps:** The service switches the wall from Area Tracking Mode to Flight Tracking Mode and keeps all active Friend flights available until FlightWall reports that their tracking windows ended.
+  - **Steps:** *(as written 2026-09-21)* The service switches the wall from Area Tracking Mode to Flight Tracking Mode and keeps all active Friend flights available until FlightWall reports that their tracking windows ended. *(As built: no mode switch exists; the flight is simply present in the wall's tracked list, and the wall shows it when active.)*
   - **Outcome:** The wall prioritizes each Friend's flight while FlightWall considers it relevant.
   - **Covered by:** R7, R8, R9, R10
 
 - F3. Return to normal area tracking
   - **Trigger:** FlightWall reports no managed Friend flight active and the daemon still owns the mode transition.
   - **Actors:** A4, A5
-  - **Steps:** The service removes only stale entries it previously created and restores Area Tracking Mode unless the owner manually changed the mode.
+  - **Steps:** *(as written 2026-09-21)* The service removes only stale entries it previously created and restores Area Tracking Mode unless the owner manually changed the mode. *(As built: only the first half applies; there is no mode to restore.)*
   - **Outcome:** Nearby aircraft return to the display without overriding manual mode changes or modifying manually added tracked flights.
   - **Covered by:** R7, R8, R9
 
@@ -64,7 +64,7 @@ Flighty already contains current and upcoming flights for the owner's Flighty Fr
 
 **Display behavior**
 
-- R9. When FlightWall exposes authoritative active-flight and mode-change state, the service must switch from Area Tracking Mode to Flight Tracking Mode while at least one managed Friend flight is active and return to Area Tracking Mode only when none are active, the daemon initiated the switch, and the owner has not manually overridden it.
+- R9. ~~When FlightWall exposes authoritative active-flight and mode-change state, the service must switch from Area Tracking Mode to Flight Tracking Mode…~~ **Withdrawn 2026-09-22.** The FlightWall Mini has no display mode: tracked flights show alongside area tracking ("Tracked flights will show regardless of area settings"). F2 and F3 reduce to adding and removing entries.
 - R10. Overlapping active Friends' flights must all remain available to FlightWall rather than one silently replacing another.
 
 **Operations**
@@ -80,7 +80,7 @@ Flighty already contains current and upcoming flights for the owner's Flighty Fr
 
 - AE1. **Covers R1, R2, R3, R5.** Given a Friend's future flight is exported twice with an updated gate, repeated daemon runs retain one managed FlightWall entry and do not add duplicates.
 - AE2. **Covers R7, R8.** Given one manually added flight and one daemon-added flight, when the calendar flight is deleted, only the daemon-added entry is removed.
-- AE3. **Covers R9, R10.** Given two Friends' flights overlap and FlightWall exposes authoritative activity and mode state, when the first becomes active the wall enters Flight Tracking Mode, both active flights remain tracked, and the wall returns to Area Tracking Mode only after both are inactive and no manual mode override occurred.
+- AE3. **Covers R10** (R9 withdrawn). Given two Friends' flights overlap, both are present in the wall's tracked-flight list while active, and each is removed only when its own calendar source is gone.
 - AE4. **Covers R13, R14.** Given FlightWall is unavailable, a dry run reports locally inferred intent as provisional with remote-dependent actions marked unknown, while a normal run records an error without mutating FlightWall or changing ownership records.
 
 ---
@@ -110,7 +110,7 @@ Flighty already contains current and upcoming flights for the owner's Flighty Fr
 - Google Calendar is the integration boundary because Flighty officially exports Friends' flights there and does not publish a Friends API.
 - A dedicated calendar isolates Flighty Friends events and reduces duplicate or unrelated event parsing.
 - The daemon preserves manually tracked flights by maintaining explicit ownership of only the entries it creates.
-- Area Tracking Mode is the default display; active Friends' flights temporarily take priority.
+- Area Tracking Mode is the default display; active Friends' flights temporarily take priority. *(Revised 2026-09-22: the wall has no modes; tracked flights display alongside area traffic.)*
 - Android is available for a one-time authorized network capture because FlightWall's commercial app has no documented public automation API.
 
 ---
@@ -119,7 +119,7 @@ Flighty already contains current and upcoming flights for the owner's Flighty Fr
 
 - Flighty Calendar Export remains enabled and includes Friends' flights with their names and standard flight information. *Verified live 2026-09-22.*
 - The dedicated Google Calendar can be shared read-only with a service account used only by the Linux daemon. *Verified live 2026-09-22.*
-- FlightWall's app backend must expose authoritative, complete state plus safe identifiers or conditional-write semantics for add/remove operations and mode changes; implementation stops and returns for a scope decision if those capabilities cannot be proven. *Unverified: waits on the owner's capture.*
+- FlightWall's app backend must expose authoritative, complete state plus safe identifiers or conditional-write semantics for add/remove operations and mode changes; implementation stops and returns for a scope decision if those capabilities cannot be proven. *Captured 2026-09-22: complete state yes (one document); identifiers are `flight_number` strings; there are no conditional writes and no mode. Accepted as a reduced contract — see the plan.*
 - FlightWall remains authoritative for each tracked flight's active window; its published default is approximately 15–30 minutes before takeoff through 30 minutes after landing.
 - The FlightWall Mini displays up to five flights at a time (vendor FAQ). Reconciliation must treat being at capacity as a normal condition.
 
@@ -132,16 +132,20 @@ Flighty already contains current and upcoming flights for the owner's Flighty Fr
 - [Affects R2, R3] **Stable calendar fields.** `summary` (`"<Friend>: ✈ DUB→BCN • VY 8721"`, with `U+00A0` and `U+200B` normalised), `description`, `start`/`end` with explicit time zones, and `status`. The stable key is `DESIGNATOR:ORIGIN:UTC-departure-date` carrying the set of contributing Google event IDs; codeshares make the cycle non-authoritative because the export carries no codeshare data. Recorded in `tests/fixtures/google_calendar/README.md`.
 - [Affects R6] **Defaults.** Poll every 120 seconds, manage the next 7 days; bounded to 30–86 400 seconds and 1–30 days in `config.py`.
 - [Affects R11, R12] **Read-only sharing.** The dedicated calendar was shared with the service account's `client_email` as *See all event details* and read live through `calendar.readonly` on 2026-09-22.
+- [Affects R7, R8] **FlightWall requests.** `GET`/`POST https://api.theflightwall.com/configuration` with `x-api-key` and `x-user-id` headers; tracked flights are a list in one whole-document, last-writer-wins configuration. Captured 2026-09-22 from the owner's Mac. Full contract: `docs/flightwall-api-discovery.md`.
+- [Affects R9] **Mode exclusivity.** Not exclusive — no mode exists. R9 withdrawn.
 
-### Open — settled only by the FlightWall capture
+### Open — short follow-up captures
 
-- [Affects R7, R8, R9] Which authenticated FlightWall app requests list, add, remove, and activate tracked flights and switch display modes? Protocol and capability gate: `docs/flightwall-api-discovery.md`.
-- [Affects R9] Are Area Tracking Mode and Flight Tracking Mode mutually exclusive? The vendor's "up to 5 flights at a time" suggests they may share one list. If they coexist, R9 is not applicable and the mode-lease design is dropped.
+- [Affects R8, R10] What does the server do with a six-entry document? Until known, the daemon never adds when the wall holds five.
+- [Affects R14] Is an interrupted `POST` recoverable by re-reading? Until known, automatic removal stays disabled.
+- [Affects R11] How long does the per-user key pair live, and does it survive sign-out?
 
 ---
 
 ## Status
 
 Planned in `docs/plans/2026-09-21-001-feat-flighty-flightwall-sync-plan.md`. Calendar intake and
-parsing (U1–U3) are done and verified against the live calendar. Everything that touches the wall
-(U5–U7) waits on the owner running the U4 capture.
+parsing (U1–U3) are done and verified against the live calendar. The FlightWall contract is
+captured (U4, 2026-09-22); the client (U5) is unblocked, with two gate rows still open that only
+affect removal and capacity handling in U6.

@@ -2,7 +2,7 @@
 
 Sync Flighty Friends flights from a dedicated Google Calendar to a FlightWall Mini.
 
-> **Status:** Calendar intake, Flighty event parsing, and both fixture sanitizers are done and verified against the live calendar (`mise run check`: 102 tests, 94% coverage). Nothing talks to the wall yet. The one open blocker is [step 6](#6-capture-the-flightwall-contract): the FlightWall app contract has to be captured from the owner's own device before a client can be written.
+> **Status:** Calendar intake, Flighty event parsing, and both fixture sanitizers are done and verified against the live calendar. The FlightWall contract was captured on 2026-09-22 from the owner's Mac (`mise run check`: 103 tests, 94% coverage). The wall client is next; nothing writes to the wall yet.
 
 ## Requirements
 
@@ -96,32 +96,26 @@ The fixture is written with mode `0600`. `config.toml`, credential files, runtim
 
 ## 6. Capture the FlightWall contract
 
-**This step is required before anything can talk to the wall, and only you can do it.** The
-FlightWall backend has no public API, so its contract has to be observed from the FlightWall
-app on your own device, against your own account and wall.
+**Done 2026-09-22.** The FlightWall backend has no public API, so its contract was observed
+from `TheFlightWall.app` running on the owner's Mac, against the owner's own account and
+wall. The findings, the four committed fixtures, and the capability gate are in
+`docs/flightwall-api-discovery.md`; four short follow-up sequences are listed in its §8.
 
-Read `docs/flightwall-api-discovery.md` first: it has the safety rules, the fourteen
-sequences to record, and the capability checklist the capture has to satisfy. Budget about
-90 minutes.
-
-Once you have a HAR export from the proxy:
+To re-run or extend the capture:
 
 ```bash
-uv run flighty-wall sanitize-capture \
-  --input captures/flightwall.har \
-  --output-dir tests/fixtures/flightwall \
-  --host api.example-flightwall-host \
-  --redact-term "Friend Name"
+mise run capture:start                 # trusts a local CA, sets the system proxy, runs mitmdump
+# quit and relaunch TheFlightWall.app, do the sequences, Ctrl-C
+mise run capture:stop                  # proxy off, CA removed
+mise run capture:sanitize -- --host api.theflightwall.com
+mise run capture:stop --purge          # delete the raw flow and HAR once fixtures are reviewed
 ```
 
-Run it once without `--host` to list every host the capture touched, then re-run with the
-FlightWall hosts only. The sanitizer drops all header and query values, discards body fields
-whose keys are never safe, and scrubs tokens, coordinates, and identifiers by pattern — but
-it cannot recognise a person's name, so pass one `--redact-term` per name.
-
-Read every generated file before committing, then delete the raw HAR and remove the
-interception CA from the capture device. `tests/fixtures/flightwall/README.md` lists what
-must never appear in a committed fixture.
+Both `capture:start` and `capture:stop` prompt for `sudo` (macOS requires admin rights to
+change the system proxy). The sanitizer drops every header and query value, discards body
+fields whose keys are never safe, and scrubs tokens, coordinates, and identifiers by pattern
+— but it cannot recognise a person's name, so pass one `--redact-term` per Friend name if
+any could appear. Read every generated file before committing.
 
 ## Development checks
 
@@ -139,8 +133,9 @@ mise run check  # lint + types + tests + deps, same as CI
 | Step | State |
 | --- | --- |
 | 1–5 Google calendar, Flighty export, service account, fixture capture | done, verified live |
-| 6 FlightWall contract capture | **waiting on you** — about 90 minutes with your phone |
-| FlightWall client, reconciliation, systemd daemon | not started; gated on step 6 |
+| 6 FlightWall contract capture | done; four short follow-up sequences open (discovery §8) |
+| FlightWall client | next |
+| Reconciliation, systemd daemon | not started |
 
 The reviewed plan, the per-unit record of what landed, and the remaining work are in
 `docs/plans/2026-09-21-001-feat-flighty-flightwall-sync-plan.md`. The capture protocol and the

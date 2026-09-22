@@ -11,9 +11,9 @@ set -euo pipefail
 SERVICE="${usage_service:-Wi-Fi}"
 KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 
-echo "disabling $SERVICE proxies"
-networksetup -setwebproxystate "$SERVICE" off
-networksetup -setsecurewebproxystate "$SERVICE" off
+echo "disabling $SERVICE proxies (sudo)"
+sudo networksetup -setwebproxystate "$SERVICE" off
+sudo networksetup -setsecurewebproxystate "$SERVICE" off
 
 # There may be more than one if the CA was ever regenerated.
 removed=0
