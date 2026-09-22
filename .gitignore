@@ -13,6 +13,7 @@ config.toml
 credentials/
 *.credentials.json
 *.token.json
+*credentials*.toml
 
 # Runtime state
 .state/
