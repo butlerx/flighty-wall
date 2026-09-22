@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import hashlib
-import re
-from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Protocol, cast
+from typing import TYPE_CHECKING, Protocol, cast
 
 import orjson
 
 from .models import Snapshot, SnapshotAuthority, SourceEvent
+from .redaction import as_mapping, scrub_mapping
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
 
 
 class CalendarServiceRequest(Protocol):
@@ -192,7 +194,7 @@ class _PageAccumulator:
         return cast("list[object]", raw_items_value)
 
     def _add_event(self, raw_event_value: object) -> None:
-        raw_event = _string_mapping(raw_event_value)
+        raw_event = as_mapping(raw_event_value)
         if raw_event is None:
             raise CalendarDataError("calendar_response_invalid:event")
         event = _source_event(raw_event, self._observed_at)
@@ -217,7 +219,7 @@ def sanitize_event_payload(
     event: Mapping[str, object], *, sensitive_terms: Sequence[str] = ()
 ) -> dict[str, object]:
     """Return a structurally useful fixture with direct identifiers and PII removed."""
-    sanitized = _sanitize_mapping(event, sensitive_terms)
+    sanitized = scrub_mapping(event, sensitive_terms, dropped_keys=DROPPED_FIXTURE_KEYS)
     raw_id = event.get("id")
     if isinstance(raw_id, str):
         digest = hashlib.sha256(raw_id.encode("utf-8")).hexdigest()[:12]
@@ -250,7 +252,7 @@ def _source_event(raw_event: Mapping[str, object], observed_at: datetime) -> Sou
 def _event_boundary(value: object, event_id: str, field: str) -> datetime | None:
     if value is None:
         return None
-    boundary = _string_mapping(value)
+    boundary = as_mapping(value)
     if boundary is None:
         raise CalendarDataError(f"calendar_response_invalid:{field}:{event_id}")
     date_time = boundary.get("dateTime")
@@ -288,7 +290,7 @@ def _rfc3339(value: datetime) -> str:
 def _longest_string(value: object) -> int:
     if isinstance(value, str):
         return len(value)
-    mapping = _string_mapping(value)
+    mapping = as_mapping(value)
     if mapping is not None:
         lengths = [max(len(key), _longest_string(item)) for key, item in mapping.items()]
         return max(lengths, default=0)
@@ -298,57 +300,15 @@ def _longest_string(value: object) -> int:
     return 0
 
 
-def _string_mapping(value: object) -> Mapping[str, object] | None:
-    if not isinstance(value, Mapping):
-        return None
-    return cast("Mapping[str, object]", value)
-
-
-_DROPPED_FIXTURE_KEYS = {
-    "attachments",
-    "attendees",
-    "conferenceData",
-    "etag",
-    "hangoutLink",
-    "htmlLink",
-    "iCalUID",
-}
-_EMAIL = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.IGNORECASE)
-_URL = re.compile(r"[A-Z][A-Z0-9+.-]*://\S+", re.IGNORECASE)
-_UUID = re.compile(
-    r"\b[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}\b",
-    re.IGNORECASE,
+DROPPED_FIXTURE_KEYS = frozenset(
+    {
+        "attachments",
+        "attendees",
+        "conferenceData",
+        "etag",
+        "hangoutLink",
+        "htmlLink",
+        "iCalUID",
+    }
 )
-_BOOKING = re.compile(
-    r"(?im)\b(confirmation|reservation|booking)(?:\s+(?:code|number))?\s*[:#-]?\s*[A-Z0-9-]+"
-)
-_SEAT = re.compile(r"(?im)\bseat\s*[:#-]?\s*[A-Z0-9-]+")
-
-
-def _sanitize_mapping(value: Mapping[str, object], sensitive_terms: Sequence[str]) -> dict[str, object]:
-    result: dict[str, object] = {}
-    for key, item in value.items():
-        if key in _DROPPED_FIXTURE_KEYS:
-            continue
-        result[str(key)] = _sanitize_value(item, sensitive_terms)
-    return result
-
-
-def _sanitize_value(value: object, sensitive_terms: Sequence[str]) -> object:
-    if isinstance(value, str):
-        redacted = _EMAIL.sub("<redacted-email>", value)
-        redacted = _URL.sub("<redacted-url>", redacted)
-        redacted = _UUID.sub("<redacted-uuid>", redacted)
-        redacted = _BOOKING.sub(r"\1: <redacted>", redacted)
-        redacted = _SEAT.sub("Seat: <redacted>", redacted)
-        for term in sensitive_terms:
-            if term:
-                redacted = re.sub(re.escape(term), "<redacted-name>", redacted, flags=re.IGNORECASE)
-        return redacted
-    mapping = _string_mapping(value)
-    if mapping is not None:
-        return _sanitize_mapping(mapping, sensitive_terms)
-    if isinstance(value, list):
-        items = cast("list[object]", value)
-        return [_sanitize_value(item, sensitive_terms) for item in items]
-    return value
+"""Calendar keys that carry identity or private links and never belong in a fixture."""
