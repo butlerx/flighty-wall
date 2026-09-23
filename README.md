@@ -6,8 +6,7 @@ Sync Flighty Friends flights from a dedicated Google Calendar to a FlightWall Mi
 
 ## Requirements
 
-- Rust stable (`rust-toolchain.toml` pins the channel; `rustup` installs it)
-- [mise](https://mise.jdx.dev/) for development; it installs the pinned tools
+- [mise](https://mise.jdx.dev/); it installs the Rust toolchain and every other pinned tool
 - Flighty with Calendar Export
 - A dedicated Google Calendar
 - A Google Cloud project with the Calendar API enabled
@@ -58,7 +57,7 @@ Google documents this access model in [Share calendars](https://developers.googl
 1. Install the tools and the project:
 
    ```bash
-   mise install    # prek, tombi, zizmor, sqlx-cli
+   mise install    # rust, prek, tombi, zizmor, sqlx-cli
    cargo build     # first build fetches and compiles every dependency
    ```
 
@@ -208,7 +207,7 @@ entries.
 
 ## Development checks
 
-Tools (`prek`, `tombi`, `zizmor`, `sqlx-cli`) and tasks are defined in `mise.toml` (tools pinned in `mise.lock`); the Rust toolchain is pinned in `rust-toolchain.toml`.
+Tools (`rust`, `prek`, `tombi`, `zizmor`, `sqlx-cli`) and tasks are defined in `mise.toml`; exact versions are pinned in `mise.lock`.
 
 ```bash
 mise run hooks  # git hooks CI also runs

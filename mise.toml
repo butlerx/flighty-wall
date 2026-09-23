@@ -3,6 +3,7 @@ min_version = "2026.9.12"
 [tools]
 "pipx:mitmproxy" = "12.2"
 prek             = "0.4"
+rust             = "stable"
 tombi            = "1.2"
 zizmor           = "latest"
 
@@ -76,37 +77,3 @@ run         = "cargo test"
 description = "fmt, clippy, tests, and the committed sqlx query cache"
 depends     = ["cargo:fmt", "cargo:clippy", "cargo:test", "sqlx:check"]
 quiet       = true
-
-# `sqlx::query!` verifies every SQL string against the schema at compile time. Builds read
-# that schema from the committed `.sqlx/` directory (SQLX_OFFLINE=true in .cargo/config.toml).
-# After changing a query or a migration, regenerate the directory with this task and commit
-# it. It needs a live database with the migrations applied; a throwaway one under target/.
-[tasks."sqlx:prepare"]
-description = "Regenerate .sqlx/ from a fresh, fully migrated throwaway database"
-quiet       = true
-run         = [
-  "mkdir -p target/sqlx",
-  "rm -f target/sqlx/dev.sqlite3 target/sqlx/dev.sqlite3-wal target/sqlx/dev.sqlite3-shm",
-  "cargo sqlx database create",
-  "cargo sqlx migrate run",
-  "cargo sqlx prepare --workspace -- --all-targets",
-]
-
-[tasks."sqlx:prepare".env]
-SQLX_OFFLINE = "false"
-DATABASE_URL = "sqlite://{{config_root}}/target/sqlx/dev.sqlite3"
-
-[tasks."sqlx:check"]
-description = "Fail if .sqlx/ is stale relative to the queries in src/"
-quiet       = true
-run         = [
-  "mkdir -p target/sqlx",
-  "rm -f target/sqlx/dev.sqlite3 target/sqlx/dev.sqlite3-wal target/sqlx/dev.sqlite3-shm",
-  "cargo sqlx database create",
-  "cargo sqlx migrate run",
-  "cargo sqlx prepare --check --workspace -- --all-targets",
-]
-
-[tasks."sqlx:check".env]
-SQLX_OFFLINE = "false"
-DATABASE_URL = "sqlite://{{config_root}}/target/sqlx/dev.sqlite3"

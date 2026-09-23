@@ -16,7 +16,6 @@ path = "src/lib.rs"
 
 [dependencies]
 clap                = { version = "4", features = ["derive"] }
-env_logger          = { version = "0.11", default-features = false, features = ["humantime"] }
 hex                 = "0.4"
 jsonwebtoken        = "9"
 log                 = "0.4"
@@ -26,20 +25,33 @@ serde               = { version = "1", features = ["derive"] }
 serde_json          = "1"
 serde_path_to_error = "0.1"
 sha2                = "0.10"
-sqlx                = { version = "0.8", default-features = false, features = ["macros", "migrate", "runtime-tokio", "sqlite"] }
 signal-hook         = "0.3"
 tempfile            = "3"
 thiserror           = "2"
-tokio               = { version = "1", default-features = false, features = ["rt", "time"] }
 toml                = "0.8"
 ureq                = "3"
 
-# A standalone table, not inline: the TOML formatter splits long inline tables across
-# lines, which is TOML 1.1 and Cargo rejects it.
+# Standalone tables, not inline: an inline table this long gets wrapped onto several lines
+# by the formatter, and that form is TOML 1.1, which Cargo rejects.
 [dependencies.chrono]
 version          = "0.4"
 default-features = false
 features         = ["clock", "serde", "std"]
+
+[dependencies.env_logger]
+version          = "0.11"
+default-features = false
+features         = ["humantime"]
+
+[dependencies.sqlx]
+version          = "0.8"
+default-features = false
+features         = ["macros", "migrate", "runtime-tokio", "sqlite"]
+
+[dependencies.tokio]
+version          = "1"
+default-features = false
+features         = ["rt", "time"]
 
 [dev-dependencies]
 assert_cmd = "2"

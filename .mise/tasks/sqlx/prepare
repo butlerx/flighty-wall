@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+#MISE description="Regenerate .sqlx/ from a fresh, fully migrated throwaway database"
+#MISE quiet=true
+#USAGE flag "--check" help="Fail if the committed .sqlx/ is stale instead of rewriting it"
+
+# `sqlx::query!` verifies every SQL string against the schema at compile time. Builds read
+# that schema from the committed `.sqlx/` directory (SQLX_OFFLINE=true in .cargo/config.toml).
+# After changing a query or a migration, regenerate the directory with this task and commit
+# it. It needs a live database with the migrations applied; a throwaway one under target/.
+
+set -euo pipefail
+
+db="${MISE_CONFIG_ROOT}/target/sqlx/dev.sqlite3"
+export SQLX_OFFLINE=false
+export DATABASE_URL="sqlite://${db}"
+
+mkdir -p "$(dirname "$db")"
+rm -f "$db" "$db-wal" "$db-shm"
+cargo sqlx database create
+cargo sqlx migrate run
+
+# Read the flag from argv, not the usage_* variable mise sets: `sqlx:check` execs this
+# script directly, and only `mise run` parses the #USAGE header.
+mode=()
+if [[ "${1:-}" == "--check" ]]; then
+  mode=(--check)
+fi
+cargo sqlx prepare "${mode[@]}" --workspace -- --all-targets

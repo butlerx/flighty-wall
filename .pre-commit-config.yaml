@@ -55,8 +55,8 @@ repos:
 
   - repo: local
     hooks:
-      # rustfmt and clippy come from the toolchain in rust-toolchain.toml, not a hook env,
-      # so the hook and `cargo fmt` cannot disagree.
+      # rustfmt and clippy come from the toolchain mise installs, not a hook env, so
+      # the hook and `cargo fmt` cannot disagree.
       - id: rustfmt
         name: rustfmt
         language: system

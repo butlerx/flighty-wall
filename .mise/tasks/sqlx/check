@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Fail if .sqlx/ is stale relative to the queries in src/"
+#MISE quiet=true
+
+set -euo pipefail
+exec "$(dirname "$0")/prepare" --check
