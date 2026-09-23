@@ -328,12 +328,3 @@ Two things the live data taught that are easy to get wrong again: Flighty's
 route arrow (normalise before matching), and Google API success says nothing
 about whether Flighty has exported recently (observation time and event
 `updated` are kept apart).
-
-## Status
-
-| Step                                                                  | State                                                                  |
-| --------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| 1–5 Google calendar, Flighty export, service account, fixture capture | done, verified live                                                    |
-| 6 FlightWall contract capture                                         | done; `docs/flightwall-api.md`                                         |
-| FlightWall client, reconciliation, daemon                             | done; add → no-change → remove verified on the real wall from this Mac |
-| 7–9 credential file, first apply, systemd                             | **next — the first run from the Linux host**                           |
