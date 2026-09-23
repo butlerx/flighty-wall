@@ -114,7 +114,9 @@ and
    daemon's `service.lookahead_days`. Pass them after `--` to override the
    task's defaults. If the command reports `wrote 0 sanitized event(s)`, the
    read succeeded and the window simply held no flights — widen it rather than
-   assuming a setup problem.
+   assuming a setup problem. Note that `service.lookahead_days` bounds what the
+   daemon _reads_, not what reaches the wall: only today's departures are ever
+   tracked, whatever the window holds.
 
 5. Open the generated fixture and verify it contains no names, emails, booking
    codes, seat numbers, private URLs, Flighty deeplinks, event UUIDs, or raw
@@ -191,6 +193,11 @@ Read the `status=` line. `dry_run` with `add=[...]` means a write is planned.
 means a source could not be trusted and nothing would have been written — the
 `*_reason=` field says why.
 
+`parsed_flights=` counts every flight in the calendar window; `wanted=` lists
+only the ones departing today, which is all the wall ever gets. A line reading
+`parsed_flights=24 wanted=['AC919', 'AC1768']` is normal, not a parse failure:
+the other 22 are on later days and become wanted on the morning they fly.
+
 When the plan looks right, apply it once:
 
 ```bash
@@ -204,6 +211,10 @@ another flighty-wall process holds the lock.
 
 What the daemon will and will not do to your wall:
 
+- It only tracks flights departing **today**, on the clock of the machine it
+  runs on. A leg further out is read and counted but never sent; it becomes
+  wanted on the day it flies. A leg that took off earlier today stays put until
+  it lands.
 - It only ever changes `tracked_flights`. Your area, brightness, sleep, and
   layout settings are sent back byte-for-byte as read.
 - It only removes flight numbers _it_ added, recorded in its own journal.

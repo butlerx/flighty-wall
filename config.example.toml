@@ -5,6 +5,8 @@ credentials_path = "/etc/flighty-wall/google-service-account.json"
 
 [service]
 poll_interval_seconds = 120
+# Bounds the calendar read only. The wall is sent today's departures and nothing
+# else, however wide this window is; a longer one just costs a bigger response.
 lookahead_days        = 7
 dry_run               = true
 

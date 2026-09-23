@@ -178,6 +178,8 @@ pub struct Service {
         deserialize_with = "bounded::<_, 30, 86_400>"
     )]
     pub poll_interval_seconds: i64,
+    /// How far ahead the calendar is read. This bounds the *read*, not what is
+    /// tracked: only flights departing today are ever sent to the wall.
     #[serde(
         default = "Service::default_lookahead_days",
         deserialize_with = "bounded::<_, 1, 90>"
