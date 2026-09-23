@@ -1,6 +1,8 @@
 min_version = "2026.9.12"
 
 [tools]
+# Capture-only and macOS-only: `capture:start`/`capture:stop` want it, nothing
+# else does. CI names the tools it needs rather than installing this one.
 "pipx:mitmproxy" = "12.2"
 prek             = "0.4"
 rust             = "stable"

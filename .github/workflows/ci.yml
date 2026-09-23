@@ -45,6 +45,9 @@ jobs:
         with:
           experimental: true
           cache: true
+          # Only the tools ci:lint actually runs. The default install also pulls
+          # pipx:mitmproxy, which is capture-only, macOS-only, and fails here.
+          install_args: rust prek tombi zizmor cargo:sqlx-cli
 
       - name: Run lints
         run: mise run ci:lint
@@ -71,6 +74,8 @@ jobs:
         with:
           experimental: true
           cache: true
+          # `cargo test` is all this job runs.
+          install_args: rust
 
       - name: Run tests
         run: mise run ci:test

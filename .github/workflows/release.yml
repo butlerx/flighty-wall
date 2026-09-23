@@ -38,6 +38,9 @@ jobs:
         with:
           experimental: true
           cache: true
+          # Publishing needs the toolchain and nothing else; pipx:mitmproxy is
+          # capture-only, macOS-only, and fails to install here.
+          install_args: rust
 
       - run: cargo test --locked
       - run: cargo package --locked
