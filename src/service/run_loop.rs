@@ -1,11 +1,12 @@
 //! Run cycles on an interval until told to stop. Never overlaps two cycles; never sleeps
 //! past a stop.
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
-
 use super::cycle::{CycleError, CycleReport};
+use std::{
+    sync::Arc,
+    sync::atomic::{AtomicBool, Ordering},
+    time::{Duration, Instant},
+};
 
 /// A flag the signal handler sets and the loop polls.
 #[derive(Debug, Clone, Default)]
@@ -109,6 +110,7 @@ mod tests {
         CycleReport::new(
             CycleStatus::NoChange,
             now(),
+            chrono::FixedOffset::east_opt(0).unwrap(),
             Snapshot::authoritative(now(), Vec::new()),
         )
     }

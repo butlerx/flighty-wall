@@ -1,16 +1,17 @@
 //! One cycle: read the calendar, parse it, read the wall, plan, and (if asked) apply.
 
-use chrono::{DateTime, Utc};
-
-use crate::calendar::{CalendarGateway, CalendarReader};
-use crate::flightwall::{WallSnapshot, WriteOutcome, WriteRefused, WriteResult};
-use crate::models::Snapshot;
-use crate::parser::{ParsedCycle, parse_cycle};
-use crate::reconcile::{
-    ApplyError, Plan, PlanError, RecoveryOutcome, Wanted, Writer, apply_plan, plan,
-    recover_pending_write,
+use crate::{
+    calendar::{CalendarGateway, CalendarReader},
+    flightwall::{WallSnapshot, WriteOutcome, WriteRefused, WriteResult},
+    models::Snapshot,
+    parser::{DesiredFlight, ParsedCycle, parse_cycle},
+    reconcile::{
+        ApplyError, Plan, PlanError, RecoveryOutcome, Wanted, Writer, apply_plan, plan,
+        recover_pending_write,
+    },
+    state::{StateError, StateStore},
 };
-use crate::state::{StateError, StateStore};
+use chrono::{DateTime, FixedOffset, Utc};
 
 /// How far one cycle got, and therefore what its report means.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -66,6 +67,8 @@ impl CycleStatus {
 pub struct CycleReport {
     pub status: CycleStatus,
     pub started_at: DateTime<Utc>,
+    /// The operator's UTC offset at `started_at`; the day boundary "today" is measured against.
+    pub local_offset: FixedOffset,
     pub calendar: Snapshot,
     pub parsed: Option<ParsedCycle>,
     pub wall: Option<WallSnapshot>,
@@ -77,10 +80,16 @@ pub struct CycleReport {
 impl CycleReport {
     /// A report that stopped at `status` with nothing past the calendar read filled in.
     #[must_use]
-    pub fn new(status: CycleStatus, started_at: DateTime<Utc>, calendar: Snapshot) -> Self {
+    pub fn new(
+        status: CycleStatus,
+        started_at: DateTime<Utc>,
+        local_offset: FixedOffset,
+        calendar: Snapshot,
+    ) -> Self {
         Self {
             status,
             started_at,
+            local_offset,
             calendar,
             parsed: None,
             wall: None,
@@ -90,16 +99,16 @@ impl CycleReport {
         }
     }
 
-    /// Flight numbers the calendar wants, in parse order.
+    /// Flight numbers the calendar wants on the wall today, in parse order.
+    ///
+    /// Legs on a later day are parsed but not wanted; see [`todays_flights`].
     #[must_use]
     pub fn wanted(&self) -> Vec<String> {
         self.parsed
             .as_ref()
             .map(|parsed| {
-                parsed
-                    .flights
-                    .iter()
-                    .map(crate::parser::DesiredFlight::designator)
+                todays_flights(parsed, self.started_at, self.local_offset)
+                    .map(DesiredFlight::designator)
                     .collect()
             })
             .unwrap_or_default()
@@ -126,6 +135,7 @@ impl CycleReport {
             parts.push(format!("calendar_reason={reason}"));
         }
         if let Some(parsed) = &self.parsed {
+            parts.push(format!("parsed_flights={}", parsed.flights.len()));
             parts.push(format!("wanted={}", list(&self.wanted())));
             if let Some(reason) = &parsed.reason {
                 parts.push(format!("parse_reason={reason}"));
@@ -216,6 +226,7 @@ pub fn run_cycle<G: CalendarGateway>(
     wall: &impl Wall,
     store: &StateStore,
     now: DateTime<Utc>,
+    local_offset: FixedOffset,
     apply: bool,
 ) -> Result<CycleReport, CycleError> {
     let calendar_snapshot = calendar.read_snapshot(now);
@@ -223,14 +234,19 @@ pub fn run_cycle<G: CalendarGateway>(
         return Ok(CycleReport::new(
             CycleStatus::CalendarNotAuthoritative,
             now,
+            local_offset,
             calendar_snapshot,
         ));
     }
 
     let parsed = parse_cycle(&calendar_snapshot);
     if !parsed.is_authoritative() {
-        let mut report =
-            CycleReport::new(CycleStatus::ParseNotAuthoritative, now, calendar_snapshot);
+        let mut report = CycleReport::new(
+            CycleStatus::ParseNotAuthoritative,
+            now,
+            local_offset,
+            calendar_snapshot,
+        );
         report.parsed = Some(parsed);
         return Ok(report);
     }
@@ -241,7 +257,12 @@ pub fn run_cycle<G: CalendarGateway>(
         // The journal changed; read the wall again so the plan sees the settled state.
         wall_snapshot = wall.read();
     }
-    let mut report = CycleReport::new(CycleStatus::WallNotAuthoritative, now, calendar_snapshot);
+    let mut report = CycleReport::new(
+        CycleStatus::WallNotAuthoritative,
+        now,
+        local_offset,
+        calendar_snapshot,
+    );
     report.recovery = recovery;
     if !wall_snapshot.is_authoritative() {
         report.parsed = Some(parsed);
@@ -249,7 +270,11 @@ pub fn run_cycle<G: CalendarGateway>(
         return Ok(report);
     }
 
-    let the_plan = plan(&wanted(&parsed), &wall_snapshot, &store.owned_flights()?)?;
+    let the_plan = plan(
+        &wanted(&parsed, now, local_offset),
+        &wall_snapshot,
+        &store.owned_flights()?,
+    )?;
     report.parsed = Some(parsed);
 
     if !apply {
@@ -276,18 +301,41 @@ pub fn run_cycle<G: CalendarGateway>(
     Ok(report)
 }
 
-/// One `Wanted` per flight number, keeping the earliest departure.
+/// The parsed legs departing on the same local calendar day as `now`.
+///
+/// The wall is a live display, not an itinerary: a leg three days out would sit there
+/// doing nothing and, under the five-entry cap, crowd out a flight that is actually in
+/// the air. The boundary is the operator's day, not UTC, so a 23:00 local departure is
+/// still today even when it is already tomorrow in UTC.
+///
+/// A leg that departed earlier today survives the filter and stays on the wall until it
+/// lands and the server drops it. One that departed yesterday does not, which is the same
+/// answer the calendar window gives once the event has ended.
+fn todays_flights(
+    parsed: &ParsedCycle,
+    now: DateTime<Utc>,
+    local_offset: FixedOffset,
+) -> impl Iterator<Item = &DesiredFlight> {
+    let today = now.with_timezone(&local_offset).date_naive();
+    parsed.flights.iter().filter(move |flight| {
+        flight
+            .scheduled_departure
+            .with_timezone(&local_offset)
+            .date_naive()
+            == today
+    })
+}
+
+/// One `Wanted` per flight number departing today, keeping the earliest departure.
 ///
 /// The wall keys entries by `flight_number` alone and has no date, so a number that flies
-/// twice in the window (`AA577` on the 28th and again on the 9th) is one entry.
+/// twice in one day (`AA577` out at 10:00 and back at 18:00) is one entry.
 /// `parsed.flights` is sorted by departure, so the first occurrence is the soonest, and the
 /// later leg becomes wanted on its own once the earlier one has landed and the server has
 /// dropped it.
-fn wanted(parsed: &ParsedCycle) -> Vec<Wanted> {
+fn wanted(parsed: &ParsedCycle, now: DateTime<Utc>, local_offset: FixedOffset) -> Vec<Wanted> {
     let mut seen = std::collections::BTreeSet::new();
-    parsed
-        .flights
-        .iter()
+    todays_flights(parsed, now, local_offset)
         .filter(|flight| seen.insert(flight.designator()))
         .map(|flight| Wanted::new(flight.designator(), flight.key.clone()))
         .collect()
@@ -306,6 +354,11 @@ mod tests {
     use crate::calendar::{CalendarLimits, GatewayError};
     use crate::flightwall::{Fingerprint, TrackedFlight, TransportError, WriteResult};
 
+    /// Europe/Dublin in summer. Fixed, so the day boundary does not move with the host.
+    fn offset() -> FixedOffset {
+        FixedOffset::east_opt(3600).unwrap()
+    }
+
     // --- fakes -------------------------------------------------------------------------
 
     /// A calendar event in the shape Flighty exports (see the `google_calendar` fixture README).
@@ -323,8 +376,8 @@ mod tests {
             "summary": format!("{friend}: \u{2708} {origin}\u{200b}\u{2192}\u{200b}{destination} \u{2022} {carrier}\u{a0}{number}"),
             "description": format!("{carrier} {number}\n{origin} to {destination}\n\u{2197} 10:00 IST\n\u{2198} 13:00 CET"),
             "location": origin,
-            "start": {"dateTime": "2026-10-24T10:00:00+01:00", "timeZone": "Europe/Dublin"},
-            "end": {"dateTime": "2026-10-24T13:00:00+02:00", "timeZone": "Europe/Madrid"},
+            "start": {"dateTime": "2026-09-22T10:00:00+01:00", "timeZone": "Europe/Dublin"},
+            "end": {"dateTime": "2026-09-22T13:00:00+02:00", "timeZone": "Europe/Madrid"},
             "updated": "2026-09-20T09:00:00Z",
         })
     }
@@ -482,7 +535,7 @@ mod tests {
         apply: bool,
     ) -> (CycleReport, StateStore) {
         let journal = store(dir);
-        let report = run_cycle(cal, wall, &journal, now(), apply).unwrap();
+        let report = run_cycle(cal, wall, &journal, now(), offset(), apply).unwrap();
         (report, journal)
     }
 
@@ -528,7 +581,7 @@ mod tests {
         let cal = sample_calendar("Alice");
 
         for _ in 0..10 {
-            let report = run_cycle(&cal, &wall, &journal, now(), true).unwrap();
+            let report = run_cycle(&cal, &wall, &journal, now(), offset(), true).unwrap();
             assert_eq!(report.status, CycleStatus::NoChange);
         }
 
@@ -599,7 +652,15 @@ mod tests {
             wall_snapshot(&["EI61", "VY8721"]),
         ]);
 
-        let report = run_cycle(&sample_calendar("Alice"), &wall, &journal, now(), true).unwrap();
+        let report = run_cycle(
+            &sample_calendar("Alice"),
+            &wall,
+            &journal,
+            now(),
+            offset(),
+            true,
+        )
+        .unwrap();
 
         assert_eq!(report.recovery, Some(RecoveryOutcome::Applied));
         assert_eq!(report.status, CycleStatus::NoChange);
@@ -625,23 +686,100 @@ mod tests {
     }
 
     #[test]
-    fn same_flight_number_twice_in_the_window_is_wanted_once() {
-        // Flighty exports every leg. AA577 DFW->DEN on two different dates is two calendar
-        // events, two parser keys, but one wall entry: the wall has no date field.
+    fn same_flight_number_twice_in_one_day_is_wanted_once() {
+        // Flighty exports every leg. AA577 out in the morning and back in the evening is two
+        // calendar events, two parser keys, but one wall entry: the wall has no date field.
         let dir = TempDir::new().unwrap();
-        let first = flighty_event("e1", "Alice", "AA", "577", "DFW-DEN");
-        let mut second = flighty_event("e2", "Bob", "AA", "577", "DFW-DEN");
+        let first = flighty_event("e1", "Alice", "AA", "577", "DUB-LHR");
+        let mut second = flighty_event("e2", "Bob", "AA", "577", "LHR-DUB");
         second["start"] =
-            json!({"dateTime": "2026-11-05T10:00:00-06:00", "timeZone": "America/Chicago"});
+            json!({"dateTime": "2026-09-22T17:00:00+01:00", "timeZone": "Europe/London"});
         second["end"] =
-            json!({"dateTime": "2026-11-05T12:00:00-07:00", "timeZone": "America/Denver"});
+            json!({"dateTime": "2026-09-22T18:20:00+01:00", "timeZone": "Europe/Dublin"});
         let wall = FakeWall::new(vec![wall_snapshot(&[])]);
 
         let (report, journal) = cycle(&dir, &calendar(&[first, second]), &wall, true);
 
         assert_eq!(report.status, CycleStatus::Applied);
-        assert_eq!(report.wanted(), ["AA577", "AA577"]); // both legs parsed
+        assert_eq!(report.wanted(), ["AA577", "AA577"]); // both legs are today
         assert_eq!(wall.writes(), [["AA577"]]); // one entry written
         assert_eq!(owned_numbers(&journal), ["AA577"]);
+    }
+
+    // --- today-only -------------------------------------------------------------------
+
+    #[test]
+    fn a_leg_on_a_later_day_is_parsed_but_not_wanted() {
+        let dir = TempDir::new().unwrap();
+        let mut tomorrow = flighty_event("e1", "Alice", "VY", "8721", "DUB-BCN");
+        tomorrow["start"] =
+            json!({"dateTime": "2026-09-23T10:00:00+01:00", "timeZone": "Europe/Dublin"});
+        tomorrow["end"] =
+            json!({"dateTime": "2026-09-23T13:00:00+02:00", "timeZone": "Europe/Madrid"});
+        let wall = FakeWall::new(vec![wall_snapshot(&[])]);
+
+        let (report, journal) = cycle(&dir, &calendar(&[tomorrow]), &wall, true);
+
+        assert_eq!(report.status, CycleStatus::NoChange);
+        assert!(report.wanted().is_empty());
+        assert!(wall.writes().is_empty());
+        assert!(owned_numbers(&journal).is_empty());
+        assert!(
+            report.summary().contains("parsed_flights=1 wanted=[]"),
+            "{}",
+            report.summary()
+        );
+    }
+
+    #[test]
+    fn only_todays_leg_is_wanted_when_the_window_holds_both() {
+        let dir = TempDir::new().unwrap();
+        let today = flighty_event("e1", "Alice", "VY", "8721", "DUB-BCN");
+        let mut later = flighty_event("e2", "Bob", "EI", "832", "DUB-CDG");
+        later["start"] =
+            json!({"dateTime": "2026-09-26T10:00:00+01:00", "timeZone": "Europe/Dublin"});
+        later["end"] = json!({"dateTime": "2026-09-26T13:00:00+02:00", "timeZone": "Europe/Paris"});
+        let wall = FakeWall::new(vec![wall_snapshot(&[])]);
+
+        let (report, _) = cycle(&dir, &calendar(&[today, later]), &wall, true);
+
+        assert_eq!(report.wanted(), ["VY8721"]);
+        assert_eq!(wall.writes(), [["VY8721"]]);
+    }
+
+    #[test]
+    fn a_late_local_departure_is_still_today() {
+        let dir = TempDir::new().unwrap();
+        let mut late = flighty_event("e1", "Alice", "VY", "8721", "DUB-BCN");
+        late["start"] =
+            json!({"dateTime": "2026-09-22T23:30:00+01:00", "timeZone": "Europe/Dublin"});
+        late["end"] = json!({"dateTime": "2026-09-23T02:30:00+02:00", "timeZone": "Europe/Madrid"});
+        let wall = FakeWall::new(vec![wall_snapshot(&[])]);
+
+        let (report, _) = cycle(&dir, &calendar(&[late]), &wall, false);
+
+        assert_eq!(report.wanted(), ["VY8721"]);
+    }
+
+    #[test]
+    fn the_day_boundary_follows_the_offset_it_is_given() {
+        // Same instants, a different operator. At UTC-10 the cycle's "today" is still the
+        // 22nd (02:00 local), but a 10:00+01:00 departure is 23:00 on the 21st there.
+        let dir = TempDir::new().unwrap();
+        let wall = FakeWall::new(vec![wall_snapshot(&[])]);
+        let journal = store(&dir);
+
+        let report = run_cycle(
+            &sample_calendar("Alice"),
+            &wall,
+            &journal,
+            now(),
+            FixedOffset::west_opt(10 * 3600).unwrap(),
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(report.status, CycleStatus::NoChange);
+        assert!(report.wanted().is_empty());
     }
 }

@@ -17,7 +17,7 @@ use crate::{
     },
     state::{StateError, StateStore},
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, FixedOffset, Local, Offset, Utc};
 use clap::{Parser, Subcommand};
 use serde_json::{Value, json};
 use std::{
@@ -329,7 +329,7 @@ fn sync(config_path: &Path, apply_flag: bool) -> Result<u8, Failure> {
     let apply = apply_flag || !config.service.dry_run;
     let _lock = HostLock::acquire(&lock_path_for(&config.storage.state_path))?;
     let store = StateStore::open(&config.storage.state_path)?;
-    let report = run_cycle(&calendar, &wall, &store, Utc::now(), apply)?;
+    let report = run_cycle(&calendar, &wall, &store, Utc::now(), local_offset(), apply)?;
 
     print_report(&report, apply);
     Ok(exit_code(&report))
@@ -348,7 +348,7 @@ fn run_daemon(config_path: &Path, log_level: &str) -> Result<u8, Failure> {
     let store = StateStore::open(&config.storage.state_path)?;
 
     eprintln!(
-        "flighty-wall starting: interval={}s lookahead={}d mode={}",
+        "flighty-wall starting: interval={}s lookahead={}d mode={} (only flights departing today are tracked)",
         config.service.poll_interval_seconds,
         config.service.lookahead_days,
         if apply { "apply" } else { "dry-run" }
@@ -357,7 +357,8 @@ fn run_daemon(config_path: &Path, log_level: &str) -> Result<u8, Failure> {
         Duration::from_secs(u64::try_from(config.service.poll_interval_seconds).unwrap_or(120));
     let epoch = Instant::now();
     let cycles = run_forever(
-        || run_cycle(&calendar, &wall, &store, Utc::now(), apply),
+        // Re-read the offset every cycle: a daylight-saving change moves the day boundary.
+        || run_cycle(&calendar, &wall, &store, Utc::now(), local_offset(), apply),
         interval,
         &stop,
         || epoch.elapsed(),
@@ -450,6 +451,15 @@ fn build_reader(
         lookback_days,
         CalendarLimits::from(&config.calendar_limits),
     ))
+}
+
+/// The host's UTC offset right now: the day boundary "today" is measured against.
+///
+/// Taken from the machine the daemon runs on, which is the one sitting beside the wall.
+/// A fixed offset rather than a named zone, so the cycle that uses it is deterministic;
+/// it is re-read each cycle so a daylight-saving change is picked up within one interval.
+fn local_offset() -> FixedOffset {
+    Local::now().offset().fix()
 }
 
 /// Write `payload` as indented, key-sorted JSON via a 0600 temp file and an atomic rename.
