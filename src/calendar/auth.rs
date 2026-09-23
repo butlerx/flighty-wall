@@ -4,16 +4,18 @@
 //! until shortly before it expires. Failures are reported as short, log-safe kinds that
 //! never include the key.
 
-use std::cell::RefCell;
-use std::fmt;
-use std::path::{Path, PathBuf};
-
+use super::{
+    CALENDAR_READONLY_SCOPE, TOKEN_URI,
+    google::{JsonHttp, TokenSource},
+};
+use crate::config::{self, ConfigError};
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde::Deserialize;
-
-use super::google::{JsonHttp, TokenSource};
-use super::{CALENDAR_READONLY_SCOPE, TOKEN_URI};
-use crate::config::{self, ConfigError};
+use std::{
+    cell::RefCell,
+    fmt,
+    path::{Path, PathBuf},
+};
 
 /// Refresh a bearer token this long before Google says it expires.
 const TOKEN_REFRESH_MARGIN: ChronoDuration = ChronoDuration::seconds(60);

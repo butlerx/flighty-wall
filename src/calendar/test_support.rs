@@ -1,12 +1,10 @@
 //! Fakes and fixtures shared by the calendar submodules' tests.
 
-use std::cell::RefCell;
-
-use chrono::{DateTime, TimeZone, Utc};
-use serde_json::{Value, json};
-
 use super::google::{JsonHttp, TokenSource};
 use crate::flightwall::TransportError;
+use chrono::{DateTime, TimeZone, Utc};
+use serde_json::{Value, json};
+use std::cell::RefCell;
 
 pub(crate) fn utc(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> DateTime<Utc> {
     Utc.with_ymd_and_hms(y, mo, d, h, mi, 0).unwrap()

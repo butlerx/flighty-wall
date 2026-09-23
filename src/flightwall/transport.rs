@@ -3,11 +3,8 @@
 //! [`UreqTransport`] is the production implementation: HTTPS, normal certificate
 //! validation, HTTP/1.1, no redirects.
 
-use std::collections::BTreeMap;
-use std::fmt;
-use std::time::Duration;
-
 use serde_json::{Map, Value};
+use std::{collections::BTreeMap, fmt, time::Duration};
 
 /// The request did not complete; the outcome of a write is unknown.
 ///

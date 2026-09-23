@@ -1,9 +1,10 @@
 //! The per-install key pair the app sends, and the private TOML file it is read from.
 
-use std::fmt;
-use std::path::{Path, PathBuf};
-
 use crate::config::{self, ConfigError};
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+};
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct FlightWallCredentials {

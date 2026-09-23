@@ -1,14 +1,15 @@
 //! Read the configuration; replace its tracked flights. Nothing else.
 
+use super::{
+    contract::{
+        CONFIGURATION_PATH, MAX_TRACKED_FLIGHTS, TrackedFlight, WallSnapshot, WriteOutcome,
+        classify_status, request_failed, snapshot_from_document,
+    },
+    credentials::FlightWallCredentials,
+    transport::{Headers, Method, Transport},
+};
 use chrono::{DateTime, Utc};
 use serde_json::{Map, Value};
-
-use super::contract::{
-    CONFIGURATION_PATH, MAX_TRACKED_FLIGHTS, TrackedFlight, WallSnapshot, WriteOutcome,
-    classify_status, request_failed, snapshot_from_document,
-};
-use super::credentials::FlightWallCredentials;
-use super::transport::{Headers, Method, Transport};
 
 /// The outcome of one replace, plus the fresh read the caller must reconcile against.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1,8 +1,10 @@
 //! An exclusive advisory lock so two mutating processes never share one state database.
 
-use std::fs;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
-use std::path::{Path, PathBuf};
+use std::{
+    fs,
+    os::unix::fs::{DirBuilderExt, OpenOptionsExt},
+    path::{Path, PathBuf},
+};
 
 /// Why the host lock could not be taken.
 #[derive(Debug, thiserror::Error)]

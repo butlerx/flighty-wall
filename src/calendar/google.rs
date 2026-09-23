@@ -4,14 +4,11 @@
 //! expressed without any HTTP-library types so tests can script it. [`UreqJsonHttp`] is
 //! the production implementation.
 
-use std::fmt;
-use std::time::Duration;
-
-use chrono::{DateTime, Utc};
-use serde_json::{Map, Value};
-
 use super::reader::{CalendarGateway, GatewayError};
 use crate::flightwall::TransportError;
+use chrono::{DateTime, Utc};
+use serde_json::{Map, Value};
+use std::{fmt, time::Duration};
 
 const EVENTS_URL_PREFIX: &str = "https://www.googleapis.com/calendar/v3/calendars/";
 

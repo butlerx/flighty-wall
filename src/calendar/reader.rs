@@ -4,14 +4,14 @@
 //! any gateway failure makes the whole cycle non-authoritative rather than yielding a
 //! partial view.
 
-use std::collections::HashMap;
-
+use crate::{
+    config,
+    flightwall::TransportError,
+    models::{Snapshot, SourceEvent},
+};
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde_json::{Map, Value};
-
-use crate::config;
-use crate::flightwall::TransportError;
-use crate::models::{Snapshot, SourceEvent};
+use std::collections::HashMap;
 
 /// Hard caps that make an oversized calendar response non-authoritative.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

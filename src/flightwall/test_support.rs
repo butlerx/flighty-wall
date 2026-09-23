@@ -3,13 +3,10 @@
 //! Every request/response shape comes from `tests/fixtures/flightwall/`; nothing is
 //! invented.
 
-use std::fs;
-use std::path::Path;
-
+use super::credentials::FlightWallCredentials;
 use chrono::{DateTime, TimeZone, Utc};
 use serde_json::Value;
-
-use super::credentials::FlightWallCredentials;
+use std::{fs, path::Path};
 
 pub(crate) fn now() -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 9, 22, 12, 0, 0).unwrap()

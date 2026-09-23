@@ -1,14 +1,11 @@
 //! The captured contract as values: the document fingerprint, tracked-flight entries, the
 //! snapshot a read produces, and the vocabulary of ways a read or write can fail.
 
-use std::collections::BTreeSet;
-use std::fmt;
-
-use chrono::{DateTime, Utc};
-use serde_json::{Map, Value, json};
-
 use super::transport::TransportError;
 use crate::models::SnapshotAuthority;
+use chrono::{DateTime, Utc};
+use serde_json::{Map, Value, json};
+use std::{collections::BTreeSet, fmt};
 
 pub const CONFIGURATION_PATH: &str = "/configuration";
 
