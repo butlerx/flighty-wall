@@ -216,6 +216,10 @@ What the daemon will and will not do to your wall:
 
 ## 9. Run it as a service on Linux
 
+The binary is on crates.io; `cargo install flighty-wall` puts it in
+`~/.cargo/bin`. The block below builds from this checkout instead so the
+systemd unit is at hand.
+
 ```bash
 sudo useradd --system --home /var/lib/flighty-wall --shell /usr/sbin/nologin flighty-wall
 sudo install -d -m 0700 -o flighty-wall -g flighty-wall /var/lib/flighty-wall /etc/flighty-wall

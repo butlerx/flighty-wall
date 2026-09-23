@@ -6,9 +6,21 @@ rust-version = "1.85"
 description  = "Sync Flighty Friends flights to a FlightWall Mini"
 license      = "Apache-2.0"
 authors      = ["Cian Butler <butlerx@notthe.cloud>"]
+readme       = "README.md"
 repository   = "https://github.com/butlerx/flighty-wall"
 keywords     = ["daemon", "flightwall", "flighty", "google-calendar"]
-publish      = false
+categories   = ["command-line-utilities"]
+# Dev tooling that a `cargo install` never needs.
+exclude      = [
+  "/.github",
+  "/.mise",
+  "/.pre-commit-config.yaml",
+  "/.yamlfmt.yaml",
+  "/.yamllint.yaml",
+  "/docs",
+  "/mise.lock",
+  "/tombi.toml"
+]
 
 [lib]
 name = "flighty_wall"
@@ -31,8 +43,6 @@ thiserror           = "2"
 toml                = "0.8"
 ureq                = "3"
 
-# Standalone tables, not inline: an inline table this long gets wrapped onto several lines
-# by the formatter, and that form is TOML 1.1, which Cargo rejects.
 [dependencies.chrono]
 version          = "0.4"
 default-features = false

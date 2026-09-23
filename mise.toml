@@ -37,7 +37,6 @@ description = "Everything CI runs: lint, clippy, tests, sqlx cache"
 depends     = ["lint", "cargo:check"]
 quiet       = true
 
-# `mise run fixture:calendar -- --redact-term "Friend Name"`
 [tasks."fixture:calendar"]
 description = "Capture a sanitized Google Calendar fixture into tests/fixtures"
 quiet       = true
