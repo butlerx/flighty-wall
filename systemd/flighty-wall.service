@@ -9,8 +9,9 @@
 #   sudo install -m 0644 systemd/flighty-wall.service /etc/systemd/system/
 #   sudo systemctl daemon-reload && sudo systemctl enable --now flighty-wall
 #
-# The unit assumes the package is installed into /opt/flighty-wall with `uv sync --frozen`
-# (so the entry point is /opt/flighty-wall/.venv/bin/flighty-wall). Adjust ExecStart if not.
+# The unit assumes the release binary is installed to /usr/local/bin:
+#   cargo build --release && sudo install -m 0755 target/release/flighty-wall /usr/local/bin/
+# Adjust ExecStart if it lives elsewhere.
 
 [Unit]
 Description=Sync Flighty Friends' flights to a FlightWall Mini
@@ -23,7 +24,7 @@ Type=exec
 User=flighty-wall
 Group=flighty-wall
 WorkingDirectory=/var/lib/flighty-wall
-ExecStart=/opt/flighty-wall/.venv/bin/flighty-wall run --config /etc/flighty-wall/config.toml
+ExecStart=/usr/local/bin/flighty-wall run --config /etc/flighty-wall/config.toml
 Restart=on-failure
 RestartSec=30s
 # SIGTERM lets the current cycle finish; a cycle is bounded by the HTTP timeouts.

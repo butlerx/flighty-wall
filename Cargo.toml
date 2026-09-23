@@ -1,0 +1,54 @@
+[package]
+name         = "flighty-wall"
+version      = "0.1.0"
+edition      = "2024"
+rust-version = "1.85"
+description  = "Sync Flighty Friends flights to a FlightWall Mini"
+license      = "Apache-2.0"
+authors      = ["Cian Butler <butlerx@notthe.cloud>"]
+repository   = "https://github.com/butlerx/flighty-wall"
+keywords     = ["daemon", "flightwall", "flighty", "google-calendar"]
+publish      = false
+
+[lib]
+name = "flighty_wall"
+path = "src/lib.rs"
+
+[dependencies]
+clap                = { version = "4", features = ["derive"] }
+env_logger          = { version = "0.11", default-features = false, features = ["humantime"] }
+hex                 = "0.4"
+jsonwebtoken        = "9"
+log                 = "0.4"
+regex               = "1"
+rustix              = { version = "0.38", features = ["fs"] }
+serde               = { version = "1", features = ["derive"] }
+serde_json          = "1"
+serde_path_to_error = "0.1"
+sha2                = "0.10"
+sqlx                = { version = "0.8", default-features = false, features = ["macros", "migrate", "runtime-tokio", "sqlite"] }
+signal-hook         = "0.3"
+tempfile            = "3"
+thiserror           = "2"
+tokio               = { version = "1", default-features = false, features = ["rt", "time"] }
+toml                = "0.8"
+ureq                = "3"
+
+# A standalone table, not inline: the TOML formatter splits long inline tables across
+# lines, which is TOML 1.1 and Cargo rejects it.
+[dependencies.chrono]
+version          = "0.4"
+default-features = false
+features         = ["clock", "serde", "std"]
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+
+[lints.clippy]
+all      = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+
+[lints.rust]
+# `deny`, not `forbid`: the config tests need one `#[allow]` to set `$HOME`.
+unsafe_code = "deny"

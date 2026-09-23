@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT desired, \"before\" AS before, started_at FROM pending_writes WHERE singleton = 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "desired",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "before",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "started_at",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d5214fd8d87fc3deb18560bd15a13a50b7aead235ed50d4016ad21717c0e4263"
+}

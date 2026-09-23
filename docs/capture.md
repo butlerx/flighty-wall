@@ -95,16 +95,15 @@ plain HTTP — this is how §9 of the API document was filled in after the app c
 reads unless you are willing to change the wall, and restore `tracked_flights` to what it was
 when you are done. The pattern:
 
-```python
-import json, os, tomllib, urllib.request
-creds = tomllib.load(open("flightwall-credentials.toml", "rb"))
-headers = {
-    "x-api-key": creds["api_key"], "x-user-id": creds["user_id"],
-    "accept": "application/json",
-    "user-agent": "TheFlightWall/1 CFNetwork/3860.700.1 Darwin/25.6.0",   # required, §1 of the API doc
-}
-req = urllib.request.Request("https://api.theflightwall.com/configuration", headers=headers)
-document = json.load(urllib.request.urlopen(req))
+```bash
+# Reads the key pair from the 0600 file without echoing either value.
+api_key=$(sed -n 's/^api_key *= *"\(.*\)"/\1/p' flightwall-credentials.toml)
+user_id=$(sed -n 's/^user_id *= *"\(.*\)"/\1/p' flightwall-credentials.toml)
+curl -sS https://api.theflightwall.com/configuration \
+  -H "x-api-key: $api_key" -H "x-user-id: $user_id" \
+  -H "accept: application/json" \
+  -H "user-agent: TheFlightWall/1 CFNetwork/3860.700.1 Darwin/25.6.0" \   # required, §1 of the API doc
+  | jq '.request_config.tracked_flights[].flight_number'
 ```
 
 Print only shapes and flight numbers. The document carries the owner's home coordinates.

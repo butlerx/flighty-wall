@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT flight_number AS \"flight_number!\" FROM owned_flights ORDER BY flight_number",
+  "describe": {
+    "columns": [
+      {
+        "name": "flight_number!",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "c4f575080eb1348f2e7857638c458d912cb359a09c1d98fa2c22c092094ce32a"
+}

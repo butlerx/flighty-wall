@@ -8,7 +8,7 @@ below traces to a sanitized fixture in `tests/fixtures/flightwall/` or to a prob
 nothing else.
 
 **This is a private, undocumented contract.** The vendor may change it at any time. The
-client (`src/flighty_wall/flightwall.py`) checks the fingerprint in §7 on every read and
+client (`src/flightwall.rs`) checks the fingerprint in §7 on every read and
 refuses to write when it changes; when that happens, re-run the capture in `docs/capture.md`
 and update this document.
 

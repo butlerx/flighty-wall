@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO pending_writes(singleton, desired, \"before\", started_at)\n                   VALUES (1, ?1, ?2, ?3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "b39e7d42dc45fd3a638e7ddbcaa707b0ebeed3a50bd1152a05d10a59af3823f4"
+}

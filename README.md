@@ -2,11 +2,11 @@
 
 Sync Flighty Friends flights from a dedicated Google Calendar to a FlightWall Mini.
 
-> **Status:** Feature-complete. Calendar intake, Flighty parsing, the FlightWall client, reconciliation, and the daemon are implemented and tested against captured real data (`mise run check`: 179 tests, 94% coverage). Not yet run against the live wall from Linux — steps 7–9 below are the first deployment.
+> **Status:** Feature-complete. Calendar intake, Flighty parsing, the FlightWall client, reconciliation, and the daemon are implemented and tested against captured real data (`mise run check`: 168 tests). Not yet run against the live wall from Linux — steps 7–9 below are the first deployment.
 
 ## Requirements
 
-- Python 3.11 or newer
+- Rust stable (`rust-toolchain.toml` pins the channel; `rustup` installs it)
 - [mise](https://mise.jdx.dev/) for development; it installs the pinned tools
 - Flighty with Calendar Export
 - A dedicated Google Calendar
@@ -58,8 +58,8 @@ Google documents this access model in [Share calendars](https://developers.googl
 1. Install the tools and the project:
 
    ```bash
-   mise install    # uv, prek, tombi, zizmor
-   mise run sync   # .venv with every dependency group
+   mise install    # prek, tombi, zizmor, sqlx-cli
+   cargo build     # first build fetches and compiles every dependency
    ```
 
 2. Create local configuration:
@@ -81,7 +81,7 @@ Google documents this access model in [Share calendars](https://developers.googl
    This runs:
 
    ```bash
-   uv run flighty-wall inspect-calendar \
+   cargo run -- inspect-calendar \
      --config config.toml \
      --output tests/fixtures/google_calendar/friend-flight.json \
      --lookahead-days 60 --lookback-days 3 \
@@ -138,7 +138,7 @@ credentials_path = "/path/to/flightwall-credentials.toml"
 Confirm it works without writing anything:
 
 ```bash
-uv run flighty-wall probe-wall --config config.toml
+cargo run -- probe-wall --config config.toml
 ```
 
 You should see `model: mini-v1` and your current tracked flights. Now
@@ -150,7 +150,7 @@ You should see `model: mini-v1` and your current tracked flights. Now
 what it *would* write:
 
 ```bash
-uv run flighty-wall sync --config config.toml
+cargo run -- sync --config config.toml
 ```
 
 Read the `status=` line. `dry_run` with `add=[...]` means a write is planned. `no_change`
@@ -160,7 +160,7 @@ be trusted and nothing would have been written — the `*_reason=` field says wh
 When the plan looks right, apply it once:
 
 ```bash
-uv run flighty-wall sync --config config.toml --apply
+cargo run -- sync --config config.toml --apply
 ```
 
 Then run it again: the second `sync --apply` must report `status=no_change`. That is the
@@ -185,8 +185,8 @@ sudo useradd --system --home /var/lib/flighty-wall --shell /usr/sbin/nologin fli
 sudo install -d -m 0700 -o flighty-wall -g flighty-wall /var/lib/flighty-wall /etc/flighty-wall
 sudo install -m 0600 -o flighty-wall -g flighty-wall config.toml google-service-account.json \
   flightwall-credentials.toml /etc/flighty-wall/
-sudo git clone https://github.com/butlerx/flighty-wall /opt/flighty-wall
-sudo -u flighty-wall sh -c 'cd /opt/flighty-wall && uv sync --frozen --no-dev'
+cargo build --release
+sudo install -m 0755 target/release/flighty-wall /usr/local/bin/
 sudo install -m 0644 systemd/flighty-wall.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now flighty-wall
@@ -208,14 +208,16 @@ entries.
 
 ## Development checks
 
-Tools (`uv`, `prek`, `tombi`, `zizmor`) and tasks are defined in `mise.toml` (tools pinned in `mise.lock`); Python is pinned in `.python-version`.
+Tools (`prek`, `tombi`, `zizmor`, `sqlx-cli`) and tasks are defined in `mise.toml` (tools pinned in `mise.lock`); the Rust toolchain is pinned in `rust-toolchain.toml`.
 
 ```bash
 mise run hooks  # git hooks CI also runs
-mise run check  # lint + types + tests + deps, same as CI
+mise run check  # lint + clippy + tests + sqlx cache, same as CI
 ```
 
-`mise tasks` lists the individual tasks (`lint`, `lint:fix`, `test`, `deps`). `mise run test -- -k name` and `mise run lint -- ruff-check` pass extra arguments through.
+`mise tasks` lists the individual tasks (`lint`, `lint:fix`, `cargo:test`, `cargo:clippy`, `sqlx:prepare`). `mise run cargo:test -- name` and `mise run lint -- clippy` pass extra arguments through.
+
+Unit tests live inline in each `src/*.rs` under `#[cfg(test)]`; `tests/cli.rs` drives the compiled binary end to end. Every SQL string in `src/state.rs` is checked against the schema at compile time (`sqlx::query!`) using the committed `.sqlx/` cache; after changing a query or a migration, run `mise run sqlx:prepare` and commit the result.
 
 ## Design
 
@@ -248,14 +250,14 @@ Layout:
 
 | Module | Role |
 | --- | --- |
-| `calendar.py`, `auth.py` | Bounded, service-account reads of the dedicated Google Calendar |
-| `parser.py` | Flighty export → `DesiredFlight`, keyed `DESIGNATOR:ORIGIN:UTC-date`, fail-closed |
-| `flightwall.py` | The contract: `read()`, `replace_tracked_flights()`, fingerprint, `WallFailure` |
-| `reconcile.py` | Pure planner + the one writer; journal-as-owner, cap of five |
-| `state.py` | SQLite: `owned_flights`, one `pending_writes` row, `0700`/`0600` enforced |
-| `service.py` | One cycle, the loop, the host lock |
-| `cli.py` | `inspect-calendar`, `sanitize-capture`, `probe-wall`, `sync`, `run` |
-| `capture.py`, `redaction.py` | Turn a HAR into committable fixtures with nothing personal in them |
+| `calendar.rs` | Bounded reads of the dedicated Google Calendar; service-account JWT → bearer token |
+| `parser.rs` | Flighty export → `DesiredFlight`, keyed `DESIGNATOR:ORIGIN:UTC-date`, fail-closed |
+| `flightwall.rs` | The contract: `read()`, `replace_tracked_flights()`, fingerprint, `WallFailure` |
+| `reconcile.rs` | Pure planner + the one writer; journal-as-owner, cap of five |
+| `state.rs` | SQLite via `sqlx`: `owned_flights`, one `pending_writes` row, `0700`/`0600` enforced |
+| `service.rs` | One cycle, the loop, the host lock |
+| `cli.rs` | `inspect-calendar`, `sanitize-capture`, `probe-wall`, `sync`, `run` |
+| `capture.rs`, `redaction.rs` | Turn a HAR into committable fixtures with nothing personal in them |
 
 Two things the live data taught that are easy to get wrong again: Flighty's `summary` carries
 `U+00A0` between carrier and number and `U+200B` around the route arrow (normalise before

@@ -2,6 +2,15 @@
 
 lockfile_version = 2
 
+[[tools."cargo:sqlx-cli"]]
+version = "0.8.6"
+backend = "cargo:sqlx-cli"
+specifiers = ["0.8.6"]
+
+[tools."cargo:sqlx-cli".options]
+default-features = "false"
+features = "sqlite,rustls"
+
 [[tools."pipx:mitmproxy"]]
 version = "12.2.3"
 backend = "pipx:mitmproxy"

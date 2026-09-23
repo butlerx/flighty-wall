@@ -1,5 +1,4 @@
-# Same line length as ruff (pyproject.toml [tool.ruff] line-length) so YAML
-# and Python wrap at the same column. Formatting is yamlfmt's job; yamllint
+# Same line length as .yamlfmt.yaml. Formatting is yamlfmt's job; yamllint
 # only reports what a formatter cannot fix.
 extends: default
 

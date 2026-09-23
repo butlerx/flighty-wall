@@ -14,7 +14,7 @@ mise run fixture:calendar -- --redact-term "Friend Name"
 which runs:
 
 ```bash
-uv run flighty-wall inspect-calendar \
+cargo run -- inspect-calendar \
   --config config.toml \
   --output tests/fixtures/google_calendar/friend-flight.json \
   --lookahead-days 60 --lookback-days 3 \

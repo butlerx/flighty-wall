@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM owned_flights WHERE flight_number = ?1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "b0d5ac76f1be381bedaf7e087ba6a5e05d65147ae54ca17f686bf99f3c42b939"
+}

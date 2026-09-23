@@ -4,19 +4,17 @@ min_version = "2026.9.12"
 "pipx:mitmproxy" = "12.2"
 prek             = "0.4"
 tombi            = "1.2"
-uv               = "0.12"
 zizmor           = "latest"
+
+# Only the SQLite driver: the default build also compiles Postgres and MySQL support.
+[tools."cargo:sqlx-cli"]
+version          = "0.8.6"
+default-features = false
+features         = "sqlite,rustls"
 
 [settings]
 experimental = true
 lockfile     = true
-
-[tasks.sync]
-description = "Create the virtualenv and install every dependency group"
-quiet       = true
-sources     = ["pyproject.toml", "uv.lock", ".python-version"]
-outputs     = [".venv/pyvenv.cfg"]
-run         = "uv sync --frozen"
 
 [tasks.hooks]
 description = "Install the git hooks that CI also runs"
@@ -24,54 +22,91 @@ quiet       = true
 run         = "prek install --hook-type pre-commit --hook-type commit-msg"
 
 [tasks.lint]
-description = "ruff, mypy, pyright, tombi, yamlfmt, actionlint, zizmor"
-depends     = ["sync"]
+description = "prek: rustfmt, clippy, tombi, yamlfmt, actionlint, zizmor"
 quiet       = true
 run         = "prek run --all-files"
 
 [tasks."lint:fix"]
 description = "Auto-fix what the hooks can fix"
-depends     = ["sync"]
 quiet       = true
-run         = "prek run --all-files ruff-check ruff-format tombi-format yamlfmt || true"
-
-[tasks.test]
-description = "Run the test suite with coverage"
-alias       = "t"
-depends     = ["sync"]
-quiet       = true
-run         = "uv run --frozen pytest --cov"
-
-[tasks.deps]
-description = "Check for missing, unused, or misplaced dependencies"
-depends     = ["sync"]
-quiet       = true
-run         = "uv run --frozen deptry src"
+run         = "prek run --all-files rustfmt tombi-format yamlfmt || true"
 
 [tasks.check]
-description = "Everything CI runs: lint, types, tests, deps"
-depends     = ["lint", "test", "deps"]
+description = "Everything CI runs: lint, clippy, tests, sqlx cache"
+depends     = ["lint", "cargo:check"]
 quiet       = true
 
 # `mise run fixture:calendar -- --redact-term "Friend Name"`
 [tasks."fixture:calendar"]
 description = "Capture a sanitized Google Calendar fixture into tests/fixtures"
-depends     = ["sync"]
 quiet       = true
-run         = "uv run --frozen flighty-wall inspect-calendar --config config.toml --output tests/fixtures/google_calendar/friend-flight.json --lookahead-days 60 --lookback-days 3"
+run         = "cargo run --quiet -- inspect-calendar --config config.toml --output tests/fixtures/google_calendar/friend-flight.json --lookahead-days 60 --lookback-days 3"
 
 [tasks."ci:lint"]
-depends = ["lint", "deps"]
+depends = ["lint", "cargo:clippy", "sqlx:check"]
 hide    = true
 quiet   = true
 
 [tasks."ci:test"]
-depends = ["test"]
+depends = ["cargo:test"]
 hide    = true
 quiet   = true
 
 [tasks."capture:sanitize"]
 description = "Turn captures/flightwall.har into sanitized fixtures under tests/fixtures/flightwall"
-depends     = ["sync"]
 quiet       = true
-run         = "uv run --frozen flighty-wall sanitize-capture --input captures/flightwall.har --output-dir tests/fixtures/flightwall"
+run         = "cargo run --quiet -- sanitize-capture --input captures/flightwall.har --output-dir tests/fixtures/flightwall"
+
+[tasks."cargo:fmt"]
+description = "rustfmt, check only"
+quiet       = true
+run         = "cargo fmt --check"
+
+[tasks."cargo:clippy"]
+description = "clippy, pedantic, every target, warnings are errors"
+quiet       = true
+run         = "cargo clippy --all-targets -- -D warnings"
+
+[tasks."cargo:test"]
+description = "Unit tests inline in src/, e2e tests of the binary in tests/"
+quiet       = true
+run         = "cargo test"
+
+[tasks."cargo:check"]
+description = "fmt, clippy, tests, and the committed sqlx query cache"
+depends     = ["cargo:fmt", "cargo:clippy", "cargo:test", "sqlx:check"]
+quiet       = true
+
+# `sqlx::query!` verifies every SQL string against the schema at compile time. Builds read
+# that schema from the committed `.sqlx/` directory (SQLX_OFFLINE=true in .cargo/config.toml).
+# After changing a query or a migration, regenerate the directory with this task and commit
+# it. It needs a live database with the migrations applied; a throwaway one under target/.
+[tasks."sqlx:prepare"]
+description = "Regenerate .sqlx/ from a fresh, fully migrated throwaway database"
+quiet       = true
+run         = [
+  "mkdir -p target/sqlx",
+  "rm -f target/sqlx/dev.sqlite3 target/sqlx/dev.sqlite3-wal target/sqlx/dev.sqlite3-shm",
+  "cargo sqlx database create",
+  "cargo sqlx migrate run",
+  "cargo sqlx prepare --workspace -- --all-targets",
+]
+
+[tasks."sqlx:prepare".env]
+SQLX_OFFLINE = "false"
+DATABASE_URL = "sqlite://{{config_root}}/target/sqlx/dev.sqlite3"
+
+[tasks."sqlx:check"]
+description = "Fail if .sqlx/ is stale relative to the queries in src/"
+quiet       = true
+run         = [
+  "mkdir -p target/sqlx",
+  "rm -f target/sqlx/dev.sqlite3 target/sqlx/dev.sqlite3-wal target/sqlx/dev.sqlite3-shm",
+  "cargo sqlx database create",
+  "cargo sqlx migrate run",
+  "cargo sqlx prepare --check --workspace -- --all-targets",
+]
+
+[tasks."sqlx:check".env]
+SQLX_OFFLINE = "false"
+DATABASE_URL = "sqlite://{{config_root}}/target/sqlx/dev.sqlite3"

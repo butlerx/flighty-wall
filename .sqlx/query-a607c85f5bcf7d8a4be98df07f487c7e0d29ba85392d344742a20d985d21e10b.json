@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT flight_number AS \"flight_number!\", first_added_at, source_key\n                   FROM owned_flights\n                   ORDER BY first_added_at, flight_number",
+  "describe": {
+    "columns": [
+      {
+        "name": "flight_number!",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "first_added_at",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "source_key",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "a607c85f5bcf7d8a4be98df07f487c7e0d29ba85392d344742a20d985d21e10b"
+}

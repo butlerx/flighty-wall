@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT singleton AS \"singleton!: i64\" FROM pending_writes WHERE singleton = 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "singleton!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6bb1cb4ec6cc1504ea59b9d94ea4dcc8199128f574cd2854b86b85f7b09e786a"
+}
