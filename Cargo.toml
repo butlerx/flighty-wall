@@ -29,7 +29,9 @@ path = "src/lib.rs"
 [dependencies]
 clap                = { version = "4", features = ["derive"] }
 hex                 = "0.4"
-jsonwebtoken        = "10"
+# v10 ships no crypto provider by default; `rust_crypto` keeps the build free of
+# cmake and NASM, which `aws_lc_rs` would need. One RS256 sign per token refresh.
+jsonwebtoken        = { version = "10", features = ["rust_crypto"] }
 log                 = "0.4"
 regex               = "1"
 rustix              = { version = "1.1", features = ["fs"] }
