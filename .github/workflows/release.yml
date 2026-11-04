@@ -47,7 +47,7 @@ jobs:
 
       - name: Authenticate with crates.io
         id: crates_io_auth
-        uses: rust-lang/crates-io-auth-action@4920f0933d6c80323414a03df1731d6678d52a1b # v1.0.5
+        uses: rust-lang/crates-io-auth-action@d6b091a10d7f9b30e4c05478289e94fb309882c5 # v1.0.5
 
       - name: Publish to crates.io
         env:
