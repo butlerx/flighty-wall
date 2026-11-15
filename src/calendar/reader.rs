@@ -520,7 +520,7 @@ mod tests {
         let snapshot = default_reader(&gateway).read_snapshot(now());
 
         assert_eq!(snapshot.authority, SnapshotAuthority::NonAuthoritative);
-        assert!(snapshot.events.is_empty());
+        assert_eq!(snapshot.events.len(), 0);
         assert_eq!(
             snapshot.reason.as_deref(),
             Some("calendar_request_failed:timeout")

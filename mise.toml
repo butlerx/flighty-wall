@@ -6,8 +6,9 @@ min_version = "2026.9.12"
 "pipx:mitmproxy" = "12.2"
 prek             = "0.4"
 rust             = "stable"
-tombi            = "1.2"
+tombi            = "1.11.2"
 zizmor           = "latest"
+shellcheck       = "latest"  # used by actionlint
 
 # Only the SQLite driver: the default build also compiles Postgres and MySQL support.
 [tools."cargo:sqlx-cli"]
@@ -32,7 +33,7 @@ run         = "prek run --all-files"
 [tasks."lint:fix"]
 description = "Auto-fix what the hooks can fix"
 quiet       = true
-run         = "prek run --all-files rustfmt tombi-format yamlfmt || true"
+run         = "prek run --all-files fmt tombi-format yamlfmt || true"
 
 [tasks.check]
 description = "Everything CI runs: lint, clippy, tests, sqlx cache"

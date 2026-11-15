@@ -496,11 +496,7 @@ mod tests {
             Err(CaptureError::MalformedEntry)
         );
         // An entry without request/response is skipped, not fatal.
-        assert!(
-            sanitize_har(&har(&[json!({})]), &[], &[])
-                .unwrap()
-                .is_empty()
-        );
+        assert_eq!(sanitize_har(&har(&[json!({})]), &[], &[]).unwrap().len(), 0);
     }
 
     #[test]
