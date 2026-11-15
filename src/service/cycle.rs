@@ -550,8 +550,8 @@ mod tests {
         assert_eq!(report.status, CycleStatus::DryRun);
         assert_eq!(report.wanted(), ["VY8721"]);
         assert_eq!(report.plan.as_ref().unwrap().additions, ["VY8721"]);
-        assert!(wall.writes().is_empty());
-        assert!(owned_numbers(&journal).is_empty());
+        assert_eq!(wall.writes().len(), 0);
+        assert_eq!(owned_numbers(&journal).len(), 0);
         assert!(
             report.summary().contains("add=['VY8721']"),
             "{}",
@@ -585,7 +585,7 @@ mod tests {
             assert_eq!(report.status, CycleStatus::NoChange);
         }
 
-        assert!(wall.writes().is_empty());
+        assert_eq!(wall.writes().len(), 0);
     }
 
     #[test]
@@ -596,7 +596,7 @@ mod tests {
 
         assert_eq!(report.status, CycleStatus::CalendarNotAuthoritative);
         assert!(report.plan.is_none());
-        assert!(wall.writes().is_empty());
+        assert_eq!(wall.writes().len(), 0);
         assert!(report.summary().contains("calendar_reason="));
     }
 
@@ -609,7 +609,7 @@ mod tests {
         let (report, _) = cycle(&dir, &calendar(&[odd]), &wall, true);
 
         assert_eq!(report.status, CycleStatus::ParseNotAuthoritative);
-        assert!(wall.writes().is_empty());
+        assert_eq!(wall.writes().len(), 0);
     }
 
     #[test]
@@ -624,7 +624,7 @@ mod tests {
         assert_eq!(report.status, CycleStatus::WallNotAuthoritative);
         assert_eq!(report.wanted(), ["VY8721"]); // local intent is still visible
         assert!(report.plan.is_none()); // but nothing remote-dependent is claimed
-        assert!(wall.writes().is_empty());
+        assert_eq!(wall.writes().len(), 0);
     }
 
     #[test]
@@ -634,7 +634,7 @@ mod tests {
         let (report, journal) = cycle(&dir, &sample_calendar("Alice"), &wall, true);
 
         assert_eq!(report.status, CycleStatus::Rejected);
-        assert!(owned_numbers(&journal).is_empty());
+        assert_eq!(owned_numbers(&journal).len(), 0);
     }
 
     #[test]
@@ -721,9 +721,9 @@ mod tests {
         let (report, journal) = cycle(&dir, &calendar(&[tomorrow]), &wall, true);
 
         assert_eq!(report.status, CycleStatus::NoChange);
-        assert!(report.wanted().is_empty());
-        assert!(wall.writes().is_empty());
-        assert!(owned_numbers(&journal).is_empty());
+        assert_eq!(report.wanted().len(), 0);
+        assert_eq!(wall.writes().len(), 0);
+        assert_eq!(owned_numbers(&journal).len(), 0);
         assert!(
             report.summary().contains("parsed_flights=1 wanted=[]"),
             "{}",
@@ -780,6 +780,6 @@ mod tests {
         .unwrap();
 
         assert_eq!(report.status, CycleStatus::NoChange);
-        assert!(report.wanted().is_empty());
+        assert_eq!(report.wanted().len(), 0);
     }
 }

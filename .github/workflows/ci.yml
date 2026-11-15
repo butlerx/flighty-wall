@@ -41,7 +41,7 @@ jobs:
           restore-keys: cargo-${{ runner.os }}-
 
       - name: Install mise
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
           experimental: true
           cache: true
@@ -51,6 +51,9 @@ jobs:
 
       - name: Run lints
         run: mise run ci:lint
+        env:
+          # zizmor's online audits need a token to look up action refs.
+          GH_TOKEN: ${{ github.token }}
 
   test:
     runs-on: ubuntu-latest
@@ -70,7 +73,7 @@ jobs:
           restore-keys: cargo-${{ runner.os }}-
 
       - name: Install mise
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
           experimental: true
           cache: true

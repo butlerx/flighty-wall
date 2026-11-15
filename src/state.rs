@@ -758,7 +758,7 @@ mod tests {
         let reopened = StateStore::open(&path).unwrap();
         let pending = reopened.pending_write().unwrap().expect("pending write");
         assert_eq!(pending.desired, ["EI61", "BA5"]);
-        assert!(pending.before.is_empty());
+        assert_eq!(pending.before.len(), 0);
         assert_eq!(pending.started_at, "2026-09-22T10:00:00Z");
 
         // `Tx::resolve_pending_write` as a bare path does not satisfy the higher-ranked
