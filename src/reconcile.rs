@@ -463,8 +463,8 @@ mod tests {
 
         assert_eq!(result.desired, ["BA5"]);
         assert!(!result.changed());
-        assert!(result.additions.is_empty());
-        assert!(result.removals.is_empty());
+        assert_eq!(result.additions.len(), 0);
+        assert_eq!(result.removals.len(), 0);
     }
 
     #[test]
@@ -482,7 +482,7 @@ mod tests {
         let result = plan(&wanted(&["BA5"]), &wall(&["EI61"]), &owned(&[])).unwrap();
 
         assert_eq!(result.desired, ["EI61", "BA5"]);
-        assert!(result.removals.is_empty());
+        assert_eq!(result.removals.len(), 0);
         assert_eq!(result.manual, ["EI61"]);
     }
 
@@ -499,7 +499,7 @@ mod tests {
         let result = plan(&wanted(&["EI61"]), &wall(&["EI61"]), &owned(&[])).unwrap();
 
         assert_eq!(result.desired, ["EI61"]);
-        assert!(result.additions.is_empty());
+        assert_eq!(result.additions.len(), 0);
         assert_eq!(result.suppressed, ["EI61"]);
         assert!(!result.changed());
     }
@@ -642,7 +642,7 @@ mod tests {
         let result = apply_plan(&client, &journal, &wall(&["BA5"]), &unchanged, now()).unwrap();
 
         assert!(result.is_none());
-        assert!(client.writes().is_empty());
+        assert_eq!(client.writes().len(), 0);
         assert_eq!(journal.pending_write().unwrap(), None);
     }
 
@@ -685,7 +685,7 @@ mod tests {
 
         apply_plan(&client, &journal, &before, &the_plan, now()).unwrap();
 
-        assert!(owned_numbers(&journal).is_empty());
+        assert_eq!(owned_numbers(&journal).len(), 0);
     }
 
     #[test]
@@ -705,7 +705,7 @@ mod tests {
             .expect("a write was attempted");
 
         assert_eq!(result.outcome, WriteOutcome::Rejected);
-        assert!(owned_numbers(&journal).is_empty());
+        assert_eq!(owned_numbers(&journal).len(), 0);
         assert_eq!(journal.pending_write().unwrap(), None);
     }
 
@@ -741,7 +741,7 @@ mod tests {
 
         apply_plan(&client, &journal, &before, &the_plan, now()).unwrap();
 
-        assert!(owned_numbers(&journal).is_empty());
+        assert_eq!(owned_numbers(&journal).len(), 0);
         assert_eq!(journal.pending_write().unwrap(), None);
     }
 
@@ -807,7 +807,7 @@ mod tests {
         let outcome = recover_pending_write(&journal, &wall(&["EI61"]), None).unwrap();
 
         assert_eq!(outcome, Some(RecoveryOutcome::NotApplied));
-        assert!(owned_numbers(&journal).is_empty());
+        assert_eq!(owned_numbers(&journal).len(), 0);
         assert_eq!(journal.pending_write().unwrap(), None);
     }
 

@@ -279,7 +279,7 @@ mod tests {
         let snapshot = client(&transport).read();
 
         assert_eq!(snapshot.authority, SnapshotAuthority::Authoritative);
-        assert!(snapshot.tracked_flights.is_empty());
+        assert_eq!(snapshot.tracked_flights.len(), 0);
     }
 
     /// A named mutation of the captured document and the drift fragment it must produce.
