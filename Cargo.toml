@@ -11,16 +11,7 @@ repository   = "https://github.com/butlerx/flighty-wall"
 keywords     = ["daemon", "flightwall", "flighty", "google-calendar"]
 categories   = ["command-line-utilities"]
 # Dev tooling that a `cargo install` never needs.
-exclude      = [
-  "/.github",
-  "/.mise",
-  "/.pre-commit-config.yaml",
-  "/.yamlfmt.yaml",
-  "/.yamllint.yaml",
-  "/docs",
-  "/mise.lock",
-  "/tombi.toml"
-]
+exclude      = ["/.github", "/.mise", "/.pre-commit-config.yaml", "/.yamlfmt.yaml", "/.yamllint.yaml", "/docs", "/mise.lock", "/tombi.toml"]
 
 [lib]
 name = "flighty_wall"

@@ -51,6 +51,9 @@ jobs:
 
       - name: Run lints
         run: mise run ci:lint
+        env:
+          # zizmor's online audits need a token to look up action refs.
+          GH_TOKEN: ${{ github.token }}
 
   test:
     runs-on: ubuntu-latest

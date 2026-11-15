@@ -667,7 +667,7 @@ mod tests {
         let cycle = cycle_of(&[marked]);
 
         assert_eq!(cycle.authority, SnapshotAuthority::Authoritative);
-        assert!(cycle.flights.is_empty());
+        assert_eq!(cycle.flights.len(), 0);
         assert_eq!(cycle.interpretations[0].outcome, ParseOutcome::Cancelled);
     }
 
@@ -706,7 +706,7 @@ mod tests {
         let cycle = cycle_of(&[friend_event("event-a"), codeshare]);
 
         assert_eq!(cycle.authority, SnapshotAuthority::NonAuthoritative);
-        assert!(cycle.flights.is_empty());
+        assert_eq!(cycle.flights.len(), 0);
         let reason = cycle.reason.expect("a reason");
         assert!(reason.starts_with("parse_codeshare_ambiguous:"), "{reason}");
         assert_eq!(reason, "parse_codeshare_ambiguous:IB5432,VY8721");
@@ -721,7 +721,7 @@ mod tests {
         let cycle = cycle_of(&[friend_event("event-good"), malformed]);
 
         assert_eq!(cycle.authority, SnapshotAuthority::NonAuthoritative);
-        assert!(cycle.flights.is_empty());
+        assert_eq!(cycle.flights.len(), 0);
         assert_eq!(
             cycle.reason.as_deref(),
             Some("parse_event_unrecognized:event-bad")
@@ -752,7 +752,7 @@ mod tests {
         let cycle = cycle_of(&[all_day]);
 
         assert_eq!(cycle.authority, SnapshotAuthority::Authoritative);
-        assert!(cycle.flights.is_empty());
+        assert_eq!(cycle.flights.len(), 0);
         assert_eq!(cycle.interpretations[0].outcome, ParseOutcome::AllDay);
     }
 
@@ -764,7 +764,7 @@ mod tests {
         let cycle = cycle_of(&[undated]);
 
         assert_eq!(cycle.authority, SnapshotAuthority::Authoritative);
-        assert!(cycle.flights.is_empty());
+        assert_eq!(cycle.flights.len(), 0);
         assert_eq!(
             cycle.interpretations[0].outcome,
             ParseOutcome::MissingDeparture
@@ -805,7 +805,7 @@ mod tests {
             cycle.reason.as_deref(),
             Some("parse_event_unrecognized:event-dentist")
         );
-        assert!(cycle.flights.is_empty());
+        assert_eq!(cycle.flights.len(), 0);
         assert_eq!(
             outcomes(&snapshot_of(&[unrelated]))["event-dentist"],
             ParseOutcome::Unrecognized
@@ -836,8 +836,8 @@ mod tests {
         let cycle = parse_cycle(&failed);
 
         assert_eq!(cycle.authority, SnapshotAuthority::NonAuthoritative);
-        assert!(cycle.flights.is_empty());
-        assert!(cycle.interpretations.is_empty());
+        assert_eq!(cycle.flights.len(), 0);
+        assert_eq!(cycle.interpretations.len(), 0);
         assert_eq!(
             cycle.reason.as_deref(),
             Some("calendar_request_failed:TimeoutError")
