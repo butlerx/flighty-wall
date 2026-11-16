@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/butlerx/flighty-wall/compare/v0.1.1...v0.1.2) (2026-11-16)
+
+
+### Bug Fixes
+
+* **ci:** tell gh which repo to upload release binaries to ([#26](https://github.com/butlerx/flighty-wall/issues/26)) ([3c316c6](https://github.com/butlerx/flighty-wall/commit/3c316c698d4bb9777c73e9e2001669ef42e5d11a))
+
 ## [0.1.1](https://github.com/butlerx/flighty-wall/compare/v0.1.0...v0.1.1) (2026-11-15)
 
 
